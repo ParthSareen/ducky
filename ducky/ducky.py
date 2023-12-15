@@ -37,6 +37,8 @@ def ducky() -> None:
     if args.file is not None:
         code = open(args.file).read()
         call_llama(code=code, prompt=args.prompt)
+    else:
+        raise Exception("No file provided")
 
 if __name__ == "__main__":
     ducky()
