@@ -5,7 +5,7 @@ with open('README.md', 'r', encoding='utf-8') as f:
 
 setup(
     name='rubber-ducky',
-    version='1.0.1',
+    version='1.1.0',
     description='AI Companion for Pair Programming',
     long_description=long_description,
     long_description_content_type='text/markdown',
@@ -16,6 +16,7 @@ setup(
     packages=find_packages(),
     install_requires=[
         'langchain',
+        'termcolor'
     ],
     entry_points={
         'console_scripts': [
