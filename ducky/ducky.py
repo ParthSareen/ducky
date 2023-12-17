@@ -88,7 +88,8 @@ def ducky() -> None:
         rubber_ducky.call_llama(code=code, prompt=args.prompt, chain=args.chain)
     
     elif args.directory is not None:
-        rubber_ducky.call_llama_dir(directory=args.directory, prompt=args.prompt, chain=args.chain)
+        code = read_files_from_dir(args.directory)
+        rubber_ducky.call_llama(code=code, prompt=args.prompt, chain=args.chain)
     
 
 if __name__ == "__main__":
