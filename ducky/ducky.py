@@ -1,7 +1,7 @@
 import argparse
 import asyncio
 from typing import Optional
-from ollama import AsyncClient 
+from ollama import AsyncClient
 
 
 class RubberDuck:
@@ -45,6 +45,7 @@ def read_files_from_dir(directory: str) -> str:
 
 async def ducky() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("question", nargs="?", help="Direct question to ask", default=None)
     parser.add_argument("--prompt", "-p", help="Custom prompt to be used", default=None)
     parser.add_argument("--file", "-f", help="The file to be processed", default=None)
     parser.add_argument("--directory", "-d", help="The directory to be processed", default=None)
@@ -63,23 +64,28 @@ async def ducky() -> None:
     # My testing has shown that the codellama:7b-python is good for returning python code from the program.
     # My intention with this tool was to give more general feedback and have back a back and forth with the user.
     rubber_ducky = RubberDuck(model=args.model)
+
+    # Handle direct question from CLI
+    if args.question is not None:
+        await rubber_ducky.call_llama(prompt=args.question, chain=args.chain)
+        return
+
     if args.file is None and args.directory is None:
         # Handle interactive mode (no file/directory specified)
-        if args.file is None and args.directory is None:
-            await rubber_ducky.call_llama(prompt=args.prompt, chain=args.chain)
-            if args.chain:
-                while True:
-                    await rubber_ducky.call_llama(prompt=args.prompt, chain=args.chain)
-            return
+        await rubber_ducky.call_llama(prompt=args.prompt, chain=args.chain)
+        if args.chain:
+            while True:
+                await rubber_ducky.call_llama(prompt=args.prompt, chain=args.chain)
+        return
 
-        # Handle file input
-        if args.file is not None:
-            code = open(args.file).read()
-        # Handle directory input
-        else:
-            code = read_files_from_dir(args.directory)
-            
-        await rubber_ducky.call_llama(code=code, prompt=args.prompt, chain=args.chain)
+    # Handle file input
+    if args.file is not None:
+        code = open(args.file).read()
+    # Handle directory input
+    else:
+        code = read_files_from_dir(args.directory)
+        
+    await rubber_ducky.call_llama(code=code, prompt=args.prompt, chain=args.chain)
 
 
 def main():
