@@ -11,9 +11,7 @@ class RubberDuck:
         self.client = AsyncClient()
         self.model = model
 
-    async def call_llama(
-        self, code: str = "", prompt: Optional[str] = None, chain: bool = False
-    ) -> None:
+    async def call_llama(self, code: str = "", prompt: Optional[str] = None, chain: bool = False) -> None:
         if prompt is None:
             user_prompt = input("\nEnter your prompt (or press Enter for default review): ")
             if not user_prompt:
@@ -49,9 +47,7 @@ async def ducky() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--prompt", "-p", help="Custom prompt to be used", default=None)
     parser.add_argument("--file", "-f", help="The file to be processed", default=None)
-    parser.add_argument(
-        "--directory", "-d", help="The directory to be processed", default=None
-    )
+    parser.add_argument("--directory", "-d", help="The directory to be processed", default=None)
     parser.add_argument(
         "--chain",
         "-c",
@@ -68,22 +64,26 @@ async def ducky() -> None:
     # My intention with this tool was to give more general feedback and have back a back and forth with the user.
     rubber_ducky = RubberDuck(model=args.model)
     if args.file is None and args.directory is None:
-        if args.chain:
-            while True:
-                prompt = input("\n What's on your mind? \n ")
-                await rubber_ducky.call_llama(prompt=prompt, chain=args.chain)
+        # Handle interactive mode (no file/directory specified)
+        if args.file is None and args.directory is None:
+            await rubber_ducky.call_llama(prompt=args.prompt, chain=args.chain)
+            if args.chain:
+                while True:
+                    await rubber_ducky.call_llama(prompt=args.prompt, chain=args.chain)
+            return
+
+        # Handle file input
+        if args.file is not None:
+            code = open(args.file).read()
+        # Handle directory input
         else:
-            prompt = input("\n What's on your mind? \n ")
-            await rubber_ducky.call_llama(prompt=prompt, chain=args.chain)
-
-    if args.file is not None:
-        code = open(args.file).read()
+            code = read_files_from_dir(args.directory)
+            
         await rubber_ducky.call_llama(code=code, prompt=args.prompt, chain=args.chain)
 
-    elif args.directory is not None:
-        code = read_files_from_dir(args.directory)
-        await rubber_ducky.call_llama(code=code, prompt=args.prompt, chain=args.chain)
 
+def main():
+    asyncio.run(ducky())
 
 if __name__ == "__main__":
-    asyncio.run(ducky())
+    main()

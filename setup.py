@@ -15,12 +15,11 @@ setup(
     license='MIT',
     packages=find_packages(),
     install_requires=[
-        'langchain',
-        'termcolor'
+        'ollama',
     ],
     entry_points={
         'console_scripts': [
-            'ducky=ducky:ducky',
+            'ducky=ducky.ducky:main',
         ],
     },
 )
