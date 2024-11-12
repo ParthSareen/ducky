@@ -25,7 +25,7 @@ class RubberDuck:
         while True:
             # Include previous responses in the prompt for context
             context_prompt = "\n".join(responses) + "\n" + prompt
-            response = await self.client.generate(model="codellama", prompt=context_prompt)
+            response = await self.client.generate(model=self.model, prompt=context_prompt)
             print(response['response'])
             responses.append(response['response'])
             if not chain:
@@ -45,7 +45,7 @@ def read_files_from_dir(directory: str) -> str:
 
 async def ducky() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("question", nargs="?", help="Direct question to ask", default=None)
+    parser.add_argument("question", nargs="*", help="Direct question to ask", default=None)
     parser.add_argument("--prompt", "-p", help="Custom prompt to be used", default=None)
     parser.add_argument("--file", "-f", help="The file to be processed", default=None)
     parser.add_argument("--directory", "-d", help="The directory to be processed", default=None)
@@ -67,7 +67,8 @@ async def ducky() -> None:
 
     # Handle direct question from CLI
     if args.question is not None:
-        await rubber_ducky.call_llama(prompt=args.question, chain=args.chain)
+        question = " ".join(args.question)
+        await rubber_ducky.call_llama(prompt=question, chain=args.chain)
         return
 
     if args.file is None and args.directory is None:
