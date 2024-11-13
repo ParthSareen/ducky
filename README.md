@@ -1,4 +1,7 @@
 # rubber ducky
+<p align="center">
+    <img src="ducky_img.webp" alt="Ducky Image" width="200" height="200">
+</p>
 
 ## tl;dr
 - `pip install rubber-ducky`

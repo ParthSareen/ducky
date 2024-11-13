@@ -25,9 +25,14 @@ class RubberDuck:
         while True:
             # Include previous responses in the prompt for context
             context_prompt = "\n".join(responses) + "\n" + prompt
-            response = await self.client.generate(model=self.model, prompt=context_prompt)
-            print(response['response'])
-            responses.append(response['response'])
+            stream = await self.client.generate(model=self.model, prompt=context_prompt, stream=True)
+            response_text = ""
+            async for chunk in stream:
+                if 'response' in chunk:
+                    print(chunk['response'], end='', flush=True)
+                    response_text += chunk['response']
+            print()  # New line after response completes
+            responses.append(response_text)
             if not chain:
                 break
             prompt = input("\nAny questions? \n")
@@ -67,7 +72,7 @@ async def ducky() -> None:
 
     # Handle direct question from CLI
     if args.question is not None:
-        question = " ".join(args.question)
+        question = " ".join(args.question) + " be as concise as possible"
         await rubber_ducky.call_llama(prompt=question, chain=args.chain)
         return
 
