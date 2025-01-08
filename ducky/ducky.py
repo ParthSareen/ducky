@@ -21,7 +21,6 @@ class RubberDuck:
         if self.quick:
             prompt += ". Return a command and be extremely concise"
 
-        print(prompt)
         responses = [self.system_prompt]
         while True:
             context_prompt = "\n".join(responses) + "\n" + prompt
@@ -70,7 +69,6 @@ async def ducky() -> None:
     rubber_ducky = RubberDuck(model=args.model, quick=args.quick)
 
     # Handle direct question from CLI
-    print(args.question)
     if args.question:
         question = " ".join(args.question) 
         await rubber_ducky.call_llm(prompt=question)
