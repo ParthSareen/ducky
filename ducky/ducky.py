@@ -1,31 +1,29 @@
 import argparse
 import asyncio
-from typing import Optional
 from ollama import AsyncClient
 
 
 class RubberDuck:
-    def __init__(self, model: str = "qwen2.5-coder") -> None:
+    def __init__(self, model: str, quick: bool = False) -> None:
         self.system_prompt = """You are a pair progamming tool called Ducky or RubberDucky to help developers debug, think through design, and write code. 
         Help the user think through their approach and provide feedback on the code. Think step by step and ask clarifying questions if needed.
         If asked """
         self.client = AsyncClient()
         self.model = model
+        self.quick = quick
 
-    async def call_llm(self, code: str = "", prompt: Optional[str] = None) -> None:
-        chain = True if prompt is None else False
+    async def call_llm(self, prompt: str | None = None) -> None:
+        chain = False if prompt else True
+
         if prompt is None:
-            user_prompt = input("\nEnter your prompt (or press Enter for default review): ")
-            if not user_prompt:
-                prompt = "review the code, find any issues if any, suggest cleanups if any:" + code
-            else:
-                prompt = user_prompt + code
-        else:
-            prompt = prompt + code
+            prompt = input("\nEnter your prompt (or press Enter for default review): ")
 
-        responses = []
+        if self.quick:
+            prompt += ". Return a command and be extremely concise"
+
+        print(prompt)
+        responses = [self.system_prompt]
         while True:
-            # Include previous responses in the prompt for context
             context_prompt = "\n".join(responses) + "\n" + prompt
             stream = await self.client.generate(model=self.model, prompt=context_prompt, stream=True)
             response_text = ""
@@ -33,11 +31,11 @@ class RubberDuck:
                 if 'response' in chunk:
                     print(chunk['response'], end='', flush=True)
                     response_text += chunk['response']
-            print()  # New line after response completes
+            print()
             responses.append(response_text)
             if not chain:
                 break
-            prompt = input("\n>> \n")
+            prompt = input("\n>> ")
 
 
 def read_files_from_dir(directory: str) -> str:
@@ -56,6 +54,7 @@ async def ducky() -> None:
     parser.add_argument("--prompt", "-p", help="Custom prompt to be used", default=None)
     parser.add_argument("--file", "-f", help="The file to be processed", default=None)
     parser.add_argument("--directory", "-d", help="The directory to be processed", default=None)
+    parser.add_argument("--quick", "-q", help="Quick mode", default=False)
     parser.add_argument(
         "--chain",
         "-c",
@@ -68,9 +67,10 @@ async def ducky() -> None:
     )
     args, _ = parser.parse_known_args()
 
-    rubber_ducky = RubberDuck(model=args.model)
+    rubber_ducky = RubberDuck(model=args.model, quick=args.quick)
 
     # Handle direct question from CLI
+    print(args.question)
     if args.question:
         question = " ".join(args.question) 
         await rubber_ducky.call_llm(prompt=question)
@@ -79,9 +79,6 @@ async def ducky() -> None:
     # Handle interactive mode (no file/directory specified)
     if args.file is None and args.directory is None:
         await rubber_ducky.call_llm(prompt=args.prompt)
-        if args.chain:
-            while True:
-                await rubber_ducky.call_llm(prompt=args.prompt)
         return
 
     # Get code from file or directory
