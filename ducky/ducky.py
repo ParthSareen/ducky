@@ -5,13 +5,15 @@ from ollama import AsyncClient
 
 
 class RubberDuck:
-    def __init__(self, model: str = "codellama") -> None:
-        self.system_prompt = """You are a pair progamming tool to help developers debug, think through design, and write code. 
-        Help the user think through their approach and provide feedback on the code. Think step by step and ask clarifying questions if needed."""
+    def __init__(self, model: str = "qwen2.5-coder") -> None:
+        self.system_prompt = """You are a pair progamming tool called Ducky or RubberDucky to help developers debug, think through design, and write code. 
+        Help the user think through their approach and provide feedback on the code. Think step by step and ask clarifying questions if needed.
+        If asked """
         self.client = AsyncClient()
         self.model = model
 
-    async def call_llama(self, code: str = "", prompt: Optional[str] = None, chain: bool = False) -> None:
+    async def call_llm(self, code: str = "", prompt: Optional[str] = None) -> None:
+        chain = True if prompt is None else False
         if prompt is None:
             user_prompt = input("\nEnter your prompt (or press Enter for default review): ")
             if not user_prompt:
@@ -35,7 +37,7 @@ class RubberDuck:
             responses.append(response_text)
             if not chain:
                 break
-            prompt = input("\nAny questions? \n")
+            prompt = input("\n>> \n")
 
 
 def read_files_from_dir(directory: str) -> str:
@@ -62,36 +64,31 @@ async def ducky() -> None:
         default=False,
     )
     parser.add_argument(
-        "--model", "-m", help="The model to be used", default="codellama"
+        "--model", "-m", help="The model to be used", default="qwen2.5-coder"
     )
     args, _ = parser.parse_known_args()
 
-    # My testing has shown that the codellama:7b-python is good for returning python code from the program.
-    # My intention with this tool was to give more general feedback and have back a back and forth with the user.
     rubber_ducky = RubberDuck(model=args.model)
 
     # Handle direct question from CLI
-    if args.question is not None:
-        question = " ".join(args.question) + " be as concise as possible"
-        await rubber_ducky.call_llama(prompt=question, chain=args.chain)
+    if args.question:
+        question = " ".join(args.question) 
+        await rubber_ducky.call_llm(prompt=question)
         return
 
+    # Handle interactive mode (no file/directory specified)
     if args.file is None and args.directory is None:
-        # Handle interactive mode (no file/directory specified)
-        await rubber_ducky.call_llama(prompt=args.prompt, chain=args.chain)
+        await rubber_ducky.call_llm(prompt=args.prompt)
         if args.chain:
             while True:
-                await rubber_ducky.call_llama(prompt=args.prompt, chain=args.chain)
+                await rubber_ducky.call_llm(prompt=args.prompt)
         return
 
-    # Handle file input
-    if args.file is not None:
-        code = open(args.file).read()
-    # Handle directory input
-    else:
-        code = read_files_from_dir(args.directory)
-        
-    await rubber_ducky.call_llama(code=code, prompt=args.prompt, chain=args.chain)
+    # Get code from file or directory
+    code = (open(args.file).read() if args.file 
+            else read_files_from_dir(args.directory))
+
+    await rubber_ducky.call_llm(code=code, prompt=args.prompt)
 
 
 def main():

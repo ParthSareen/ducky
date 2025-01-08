@@ -5,7 +5,7 @@ with open('README.md', 'r', encoding='utf-8') as f:
 
 setup(
     name='rubber-ducky',
-    version='1.1.3',
+    version='1.1.4',
     description='AI Companion for Pair Programming',
     long_description=long_description,
     long_description_content_type='text/markdown',
