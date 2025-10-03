@@ -1,28 +1,26 @@
 # rubber ducky
-<p align="center">
-    <img src="ducky_img.webp" alt="Ducky Image" width="200" height="200">
-</p>
 
 ## tl;dr
-- `pip install rubber-ducky`
+- `uv tool install rubber-ducky` (or `uv pip install rubber-ducky` inside a project)
 - Install ollama
-- `ollama pull codellama` (first time and then you can just have application in background)
-- There are probably other dependencies which I forgot to put in setup.py sorry in advance.
+- `ollama pull qwen3:4b` (first time and then you can just have application in background)
 - Run with `ducky <path>` or `ducky <question>`
 
 ## Dependencies
 
-You will need Ollama installed on your machine. The model I use for this project is `codellama`. 
+You will need Ollama installed on your machine. The default model used for this project is `qwen3:4b`.
 
-For the first installation you can run `ollama pull codellama` and it should pull the necessary binaries for you.
+For the first installation you can run `ollama pull qwen3:4b` and it should pull the necessary binaries for you.
 
 Ollama is also great because it'll spin up a server which can run in the background and can even do automatic model switching as long as you have it installed.
 
 ## Usage
 
-Install through [pypi](https://pypi.org/project/rubber-ducky/):
+Install through [PyPI](https://pypi.org/project/rubber-ducky/) with uv:
 
-`pip install rubber-ducky` .
+`uv tool install rubber-ducky`
+
+If you prefer a project-local installation, use `uv pip install rubber-ducky` from within your repository.
 
 ### Simple run
 `ducky`
@@ -37,14 +35,36 @@ or
 
 
 ### All options
-`ducky --file <path> --prompt <prompt> --directory <directory> --chain --model <model>`
+`ducky --file <path> --prompt <prompt> --directory <directory> --chain --model <model> --quick --command`
 
 Where:
 - `--prompt` or `-p`: Custom prompt to be used
 - `--file` or `-f`: The file to be processed
 - `--directory` or `-d`: The directory to be processed
-- `--chain` or `-c`: Chain the output of the previous command to the next command
-- `--model` or `-m`: The model to be used (default is "codellama")
+- `--model` or `-m`: The model to be used (default is "qwen3:4b")
+- `--quick` or `-q`: Quick mode for concise responses
+- `--command` or `-c`: Ask the model for a single bash command and print it in place
+
+## Development with uv
+
+This repository ships a `pyproject.toml` and `uv.lock`, so the recommended workflow is:
+
+```
+uv sync
+uv run ducky --help
+```
+
+`uv sync` will create an isolated environment with the project dependencies, while `uv run` lets you execute CLI commands without activating the environment manually.
+
+### Command-only mode
+
+When you just need a command suggestion, add `--command` (optionally paired with `--quick`).
+
+```
+ducky --command --prompt "install dependencies and start the server"
+```
+
+The model replies with a single bash command. Press Enter to execute it immediately, or type a new natural-language prompt (history is preserved) to request another suggestion. Prefix a line with `!` if you'd like to run a custom command without calling the model again.
 
 
 ## Example output
