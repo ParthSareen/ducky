@@ -1,7 +1,7 @@
 [project]
-name = "ducky"
-version = "1.1.7"
-description = "Add your description here"
+name = "rubber-ducky"
+version = "1.2.0"
+description = "For developers who can never remember the right bash command"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -9,12 +9,14 @@ dependencies = [
     "fastapi>=0.115.11",
     "ollama>=0.6.0",
     "openai>=1.60.2",
+    "prompt-toolkit>=3.0.48",
     "rich>=13.9.4",
     "termcolor>=2.5.0",
 ]
 
 [project.scripts]
 ducky = "ducky.ducky:main"
+rubber-ducky = "ducky.ducky:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
