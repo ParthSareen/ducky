@@ -13,7 +13,9 @@ except ImportError:  # pragma: no cover - readline not available on some platfor
 
 
 class RubberDuck:
-    def __init__(self, model: str, quick: bool = False, command_mode: bool = False) -> None:
+    def __init__(
+        self, model: str, quick: bool = False, command_mode: bool = False
+    ) -> None:
         self.system_prompt = dedent(
             """
             You are a pair programming tool called Ducky or RubberDucky to help
@@ -21,6 +23,10 @@ class RubberDuck:
             Help the user reason about their approach and provide feedback on
             the code. Think step by step and ask clarifying questions if
             needed.
+            
+            When the user provides git status output or similar multi-line terminal
+            output, provide a single comprehensive response that addresses all the
+            changes rather than responding to each line individually.
             """
         ).strip()
         self.client = AsyncClient()
@@ -33,7 +39,9 @@ class RubberDuck:
         self.last_thinking: str | None = None
         self.prompt_history: List[str] = []
 
-    async def call_llm(self, prompt: str | None = None, code: str | None = None) -> None:
+    async def call_llm(
+        self, prompt: str | None = None, code: str | None = None
+    ) -> None:
         interactive = prompt is None and code is None
 
         if prompt is None:
@@ -172,7 +180,7 @@ class RubberDuck:
         command = command_lines[0]
         first_semicolon = command.find(";")
         if first_semicolon != -1:
-            command = command[: first_semicolon].strip()
+            command = command[:first_semicolon].strip()
 
         return command or None
 
@@ -251,46 +259,23 @@ async def ducky() -> None:
     parser.add_argument(
         "question", nargs="*", help="Direct question to ask", default=None
     )
-    parser.add_argument("--prompt", "-p", help="Custom prompt to be used", default=None)
-    parser.add_argument("--file", "-f", help="The file to be processed", default=None)
     parser.add_argument(
         "--directory", "-d", help="The directory to be processed", default=None
     )
-    parser.add_argument("--quick", "-q", help="Quick mode", default=False)
     parser.add_argument(
-        "--command",
-        "-c",
-        dest="command",
-        action="store_true",
-        help="Return a single bash command (default behavior)",
-    )
-    parser.add_argument(
-        "--chat",
-        "--no-command",
-        dest="command",
-        action="store_false",
-        help="Disable command mode to receive full responses",
-    )
-    parser.set_defaults(command=True)
-
-    parser.add_argument(
-        "--model", "-m", help="The model to be used", default="qwen3:4b"
+        "--model", "-m", help="The model to be used", default="qwen3-coder:480b-cloud"
     )
     args, _ = parser.parse_known_args()
 
     rubber_ducky = RubberDuck(
-        model=args.model, quick=args.quick, command_mode=args.command
+        model=args.model, quick=False, command_mode=True
     )
 
     question = " ".join(args.question or []) or None
-    prompt = args.prompt or question
+    prompt = question
 
-    if args.file or args.directory:
-        code = (
-            open(args.file).read()
-            if args.file
-            else read_files_from_dir(args.directory)
-        )
+    if args.directory:
+        code = read_files_from_dir(args.directory)
         await rubber_ducky.call_llm(code=code, prompt=prompt)
         return
 
