@@ -25,6 +25,8 @@ except ImportError:  # pragma: no cover - fallback mode
 
     def patch_stdout() -> nullcontext:
         return nullcontext()
+
+
 from rich.console import Console
 
 
@@ -110,6 +112,7 @@ async def run_shell_and_print(
     assistant: RubberDuck,
     command: str,
     logger: ConversationLogger | None = None,
+    history: list[dict[str, str]] | None = None,
 ) -> None:
     if not command:
         console.print("No command provided.", style="yellow")
@@ -119,6 +122,18 @@ async def run_shell_and_print(
     print_shell_result(result)
     if logger:
         logger.log_shell(result)
+    if history is not None:
+        history.append({"role": "user", "content": f"!{command}"})
+        combined_output: list[str] = []
+        if result.stdout.strip():
+            combined_output.append(result.stdout.rstrip())
+        if result.stderr.strip():
+            combined_output.append(f"[stderr]\n{result.stderr.rstrip()}")
+        if result.returncode != 0:
+            combined_output.append(f"(exit status {result.returncode})")
+        if not combined_output:
+            combined_output.append("(command produced no output)")
+        history.append({"role": "assistant", "content": "\n\n".join(combined_output)})
 
 
 class RubberDuck:
@@ -255,6 +270,8 @@ class InlineInterface:
         self.last_command: str | None = None
         self.code = code
         self._code_sent = False
+        self.last_shell_output: str | None = None
+        self.pending_command: str | None = None
         self.session: PromptSession | None = None
 
         if (
@@ -300,7 +317,7 @@ class InlineInterface:
             return
 
         console.print(
-            "Enter submits • Ctrl+J inserts newline • Ctrl+R reruns last command • '!cmd' runs shell • Ctrl+D exits",
+            "Enter submits • empty Enter reruns the last suggested command (or explains the last shell output) • '!cmd' runs shell • Ctrl+D exits",
             style="dim",
         )
         while True:
@@ -326,11 +343,26 @@ class InlineInterface:
         if not self.last_command:
             console.print("No suggested command available yet.", style="yellow")
             return
-        await run_shell_and_print(self.assistant, self.last_command, logger=self.logger)
+        await run_shell_and_print(
+            self.assistant,
+            self.last_command,
+            logger=self.logger,
+            history=self.assistant.messages,
+        )
+        self.last_shell_output = True
+        self.pending_command = None
+        self.last_command = None
 
     async def _process_text(self, text: str) -> None:
         stripped = text.strip()
         if not stripped:
+            if self.pending_command:
+                await self._run_last_command()
+                return
+            if self.last_shell_output:
+                await self._explain_last_command()
+                return
+            console.print("Nothing to run yet.", style="yellow")
             return
 
         if stripped.lower() in {":run", "/run"}:
@@ -339,8 +371,13 @@ class InlineInterface:
 
         if stripped.startswith("!"):
             await run_shell_and_print(
-                self.assistant, stripped[1:].strip(), logger=self.logger
+                self.assistant,
+                stripped[1:].strip(),
+                logger=self.logger,
+                history=self.assistant.messages,
             )
+            self.last_shell_output = True
+            self.pending_command = None
             return
 
         result = await run_single_prompt(
@@ -352,6 +389,26 @@ class InlineInterface:
         if self.code and not self._code_sent:
             self._code_sent = True
         self.last_command = result.command
+        self.pending_command = result.command
+        self.last_shell_output = None
+
+    async def _explain_last_command(self) -> None:
+        if not self.assistant.messages or len(self.assistant.messages) < 2:
+            console.print("No shell output to explain yet.", style="yellow")
+            return
+        last_entry = self.assistant.messages[-1]
+        if last_entry["role"] != "assistant":
+            console.print("No shell output to explain yet.", style="yellow")
+            return
+        prompt = (
+            "The user ran a shell command above. Summarize the key findings from the output, "
+            "highlight problems if any, and suggest next steps. Do NOT suggest a shell command or code snippet.\n\n"
+            f"{last_entry['content']}"
+        )
+        await run_single_prompt(
+            self.assistant, prompt, logger=self.logger, suppress_suggestion=True
+        )
+        self.last_shell_output = None
 
     async def _run_basic_loop(self) -> None:  # pragma: no cover - fallback path
         while True:
@@ -388,6 +445,7 @@ async def run_single_prompt(
     prompt: str,
     code: str | None = None,
     logger: ConversationLogger | None = None,
+    suppress_suggestion: bool = False,
 ) -> AssistantResult:
     if logger:
         logger.log_user(prompt)
@@ -396,7 +454,7 @@ async def run_single_prompt(
     console.print(content, style="green", highlight=False)
     if logger:
         logger.log_assistant(content, result.command)
-    if result.command:
+    if result.command and not suppress_suggestion:
         console.print("\nSuggested command:", style="cyan", highlight=False)
         console.print(result.command, style="bold cyan", highlight=False)
     return result
@@ -455,7 +513,10 @@ async def ducky() -> None:
                 and confirm("Run suggested command?")
             ):
                 await run_shell_and_print(
-                    rubber_ducky, result.command, logger=logger
+                    rubber_ducky,
+                    result.command,
+                    logger=logger,
+                    history=rubber_ducky.messages,
                 )
         else:
             console.print("No input received from stdin.", style="yellow")

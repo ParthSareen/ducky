@@ -27,7 +27,7 @@ Both `ducky` and `rubber-ducky` executables map to the same CLI, so `uvx rubber-
 ### Inline Session (default)
 
 Launching `ducky` with no arguments opens the inline interface:
-- **Enter** submits; **Ctrl+J** inserts a newline (helpful when crafting multi-line prompts).
+- **Enter** submits; **Ctrl+J** inserts a newline (helpful when crafting multi-line prompts). Hitting **Enter on an empty prompt** reruns the latest suggested command; if none exists yet, it explains the most recent shell output.
 - **Ctrl+R** re-runs the last suggested command.
 - Prefix any line with **`!`** (e.g., `!ls -la`) to run a shell command immediately.
 - Arrow keys browse prompt history, backed by `~/.ducky/prompt_history`.

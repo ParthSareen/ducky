@@ -1,7 +1,7 @@
 [project]
 name = "rubber-ducky"
-version = "1.2.0"
-description = "For developers who can never remember the right bash command"
+version = "1.2.1"
+description = "Quick CLI do-it-all tool. Use natural language to spit out bash commands"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
