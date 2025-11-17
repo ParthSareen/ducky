@@ -1,14 +1,27 @@
 from __future__ import annotations
 
 import argparse
+import os
 import asyncio
-import json
 import sys
 from dataclasses import dataclass
 from datetime import datetime
+
+# import json included earlier
+from typing import Dict
 from pathlib import Path
 from textwrap import dedent
 from typing import Any, Dict, List
+
+
+@dataclass
+class Crumb:
+    name: str
+    path: Path
+    type: str
+    enabled: bool
+    description: str | None = None
+
 
 from ollama import AsyncClient
 from contextlib import nullcontext
@@ -48,12 +61,75 @@ class ShellResult:
 HISTORY_DIR = Path.home() / ".ducky"
 PROMPT_HISTORY_FILE = HISTORY_DIR / "prompt_history"
 CONVERSATION_LOG_FILE = HISTORY_DIR / "conversation.log"
+CRUMBS_DIR = HISTORY_DIR / "crumbs"
+CRUMBS: Dict[str, Crumb] = {}
 console = Console()
 
 
 def ensure_history_dir() -> Path:
     HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+    CRUMBS_DIR.mkdir(parents=True, exist_ok=True)
     return HISTORY_DIR
+
+
+def load_crumbs() -> Dict[str, Crumb]:
+    """Populate the global ``CRUMBS`` dictionary from the ``CRUMBS_DIR``.
+
+    Each crumb is expected to be a directory containing an ``info.txt`` and a
+    script file matching the ``type`` field (``shell`` → ``*.sh``).
+    """
+
+    global CRUMBS
+    CRUMBS.clear()
+    if not CRUMBS_DIR.exists():
+        return CRUMBS
+
+    for crumb_dir in CRUMBS_DIR.iterdir():
+        if not crumb_dir.is_dir():
+            continue
+        info_path = crumb_dir / "info.txt"
+        if not info_path.is_file():
+            continue
+        # Parse key: value pairs
+        meta = {}
+        for line in info_path.read_text(encoding="utf-8").splitlines():
+            if ":" not in line:
+                continue
+            key, val = line.split(":", 1)
+            meta[key.strip()] = val.strip()
+        name = meta.get("name", crumb_dir.name)
+        ctype = meta.get("type", "shell")
+        description = meta.get("description")
+        # Find script file: look for executable in the directory
+        script_path: Path | None = None
+        if ctype == "shell":
+            # Prefer a file named <name>.sh if present
+            candidate = crumb_dir / f"{name}.sh"
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                script_path = candidate
+            else:
+                # Fallback: first .sh in dir
+                for p in crumb_dir.glob("*.sh"):
+                    if os.access(p, os.X_OK):
+                        script_path = p
+                        break
+        # Default to first file if script not found
+        if script_path is None:
+            files = list(crumb_dir.iterdir())
+            if files:
+                script_path = files[0]
+        if script_path is None:
+            continue
+        crumb = Crumb(
+            name=name,
+            path=script_path,
+            type=ctype,
+            enabled=False,
+            description=description,
+        )
+        CRUMBS[name] = crumb
+
+        return CRUMBS
 
 
 class ConversationLogger:
@@ -82,6 +158,8 @@ class ConversationLogger:
         )
 
     def _append(self, entry: Dict[str, Any]) -> None:
+        import json
+
         entry["timestamp"] = datetime.utcnow().isoformat()
         with self.log_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry, ensure_ascii=False))
@@ -157,15 +235,50 @@ class RubberDuck:
         self.model = model
         self.quick = quick
         self.command_mode = command_mode
+        self.crumbs = load_crumbs()
         self.messages: List[Dict[str, str]] = [
             {"role": "system", "content": self.system_prompt}
         ]
+        # Update system prompt to include enabled crumb descriptions
+
+    def update_system_prompt(self) -> None:
+        print(self.crumbs)
+        """Append enabled crumb descriptions to the system prompt.
+
+        The system prompt is stored in ``self.system_prompt`` and injected as the
+        first system message. When crumbs are enabled, we add a section that
+        lists the crumb names and their descriptions. The format is simple:
+
+        ``Crumbs:``\n
+        ``- <name>: <description>``\n
+        If no crumbs are enabled the prompt is unchanged.
+        """
+        # enabled = [c for c in self.crumbs.values() if c.enabled]
+        # if not enabled:
+        #     return
+        lines = [
+            "Crumbs are simple scripts you can run with bash, uv, or bun. \nCrumbs:"
+        ]
+        # for c in enabled:
+        for c in self.crumbs.values():
+            lines.append(
+                f'{c.name}: {c.description} or "no description" path: {c.path}'
+            )
+        # Append to the system prompt text
+        self.system_prompt += "\n\n" + "\n".join(lines)
+        # Replace the first system message
         self.last_thinking: str | None = None
+        # print("system prompt in update")
+        # print(self.system_prompt)
+        # ``self.crumbs`` refers to the global CRUMBS dictionary.
 
     async def send_prompt(
         self, prompt: str | None = None, code: str | None = None
     ) -> AssistantResult:
         user_content = (prompt or "").strip()
+
+        self.update_system_prompt()
+        self.messages.append({"role": "system", "content": self.system_prompt})
 
         if code:
             user_content = f"{user_content}\n\n{code}" if user_content else code
@@ -175,7 +288,7 @@ class RubberDuck:
 
         if self.command_mode:
             instruction = (
-                "Return a single bash command that accomplishes the task. "
+                "Return a single bash command that accomplishes the task. Unless user wants something els"
                 "Do not include explanations or formatting other than the command itself."
             )
             user_content = (
@@ -185,6 +298,7 @@ class RubberDuck:
         user_message: Dict[str, str] = {"role": "user", "content": user_content}
         self.messages.append(user_message)
 
+        # print(self.messages)
         response = await self.client.chat(
             model=self.model,
             messages=self.messages,
@@ -489,10 +603,20 @@ async def ducky() -> None:
     parser.add_argument(
         "--model", "-m", help="The model to be used", default="qwen3-coder:480b-cloud"
     )
+    parser.add_argument(
+        "--local",
+        "-l",
+        action="store_true",
+        help="Run DuckY offline using a local Ollama instance on localhost:11434",
+    )
     args, _ = parser.parse_known_args()
 
     ensure_history_dir()
     logger = ConversationLogger(CONVERSATION_LOG_FILE)
+    if getattr(args, "local", False):
+        # Point Ollama client to local host and use gemma3 as default model
+        os.environ["OLLAMA_HOST"] = "http://localhost:11434"
+        args.model = "gpt-oss:20b"
     rubber_ducky = RubberDuck(model=args.model, quick=False, command_mode=True)
 
     code = read_files_from_dir(args.directory) if args.directory else None
