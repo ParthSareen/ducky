@@ -31,6 +31,13 @@ try:  # prompt_toolkit is optional at runtime
     from prompt_toolkit.history import FileHistory
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.patch_stdout import patch_stdout
+    from prompt_toolkit.application import Application
+    from prompt_toolkit.key_binding.bindings.focus import focus_next, focus_previous
+    from prompt_toolkit.layout.containers import HSplit, Window
+    from prompt_toolkit.layout.controls import FormattedTextControl
+    from prompt_toolkit.layout.layout import Layout
+    from prompt_toolkit.styles import Style
+    from prompt_toolkit.widgets import Box, Button, Dialog, Label, TextArea
 except ImportError:  # pragma: no cover - fallback mode
     PromptSession = None  # type: ignore[assignment]
     FileHistory = None  # type: ignore[assignment]
@@ -129,7 +136,7 @@ def load_crumbs() -> Dict[str, Crumb]:
         )
         CRUMBS[name] = crumb
 
-        return CRUMBS
+    return CRUMBS
 
 
 class ConversationLogger:
@@ -242,7 +249,6 @@ class RubberDuck:
         # Update system prompt to include enabled crumb descriptions
 
     def update_system_prompt(self) -> None:
-        print(self.crumbs)
         """Append enabled crumb descriptions to the system prompt.
 
         The system prompt is stored in ``self.system_prompt`` and injected as the
@@ -253,24 +259,25 @@ class RubberDuck:
         ``- <name>: <description>``\n
         If no crumbs are enabled the prompt is unchanged.
         """
-        # enabled = [c for c in self.crumbs.values() if c.enabled]
-        # if not enabled:
-        #     return
-        lines = [
-            "Crumbs are simple scripts you can run with bash, uv, or bun. \nCrumbs:"
-        ]
-        # for c in enabled:
-        for c in self.crumbs.values():
-            lines.append(
-                f'{c.name}: {c.description} or "no description" path: {c.path}'
-            )
-        # Append to the system prompt text
-        self.system_prompt += "\n\n" + "\n".join(lines)
-        # Replace the first system message
-        self.last_thinking: str | None = None
-        # print("system prompt in update")
-        # print(self.system_prompt)
-        # ``self.crumbs`` refers to the global CRUMBS dictionary.
+        # Start with the base system prompt
+        prompt_lines = [self.system_prompt]
+        
+        if self.crumbs:
+            prompt_lines.append("\nCrumbs are simple scripts you can run with bash, uv, or bun.")
+            prompt_lines.append("Crumbs:")
+            for c in self.crumbs.values():
+                description = c.description or "no description"
+                prompt_lines.append(f"- {c.name}: {description}")
+        
+        # Update the system prompt
+        self.system_prompt = "\n".join(prompt_lines)
+        
+        # Update the first system message in the messages list
+        if self.messages and self.messages[0]["role"] == "system":
+            self.messages[0]["content"] = self.system_prompt
+        else:
+            # If there's no system message, add one
+            self.messages.insert(0, {"role": "system", "content": self.system_prompt})
 
     async def send_prompt(
         self, prompt: str | None = None, code: str | None = None
@@ -278,7 +285,6 @@ class RubberDuck:
         user_content = (prompt or "").strip()
 
         self.update_system_prompt()
-        self.messages.append({"role": "system", "content": self.system_prompt})
 
         if code:
             user_content = f"{user_content}\n\n{code}" if user_content else code
@@ -298,7 +304,6 @@ class RubberDuck:
         user_message: Dict[str, str] = {"role": "user", "content": user_content}
         self.messages.append(user_message)
 
-        # print(self.messages)
         response = await self.client.chat(
             model=self.model,
             messages=self.messages,
@@ -370,6 +375,20 @@ class RubberDuck:
 
         return command or None
 
+    async def list_models(self) -> list[str]:
+        """List available Ollama models."""
+        try:
+            response = await self.client.list()
+            return [model.model for model in response.models]
+        except Exception as e:
+            console.print(f"Error listing models: {e}", style="red")
+            return []
+
+    def switch_model(self, model_name: str) -> None:
+        """Switch to a different Ollama model."""
+        self.model = model_name
+        console.print(f"Switched to model: {model_name}", style="green")
+
 
 class InlineInterface:
     def __init__(
@@ -387,6 +406,7 @@ class InlineInterface:
         self.last_shell_output: str | None = None
         self.pending_command: str | None = None
         self.session: PromptSession | None = None
+        self.selected_model: str | None = None
 
         if (
             PromptSession is not None
@@ -483,6 +503,10 @@ class InlineInterface:
             await self._run_last_command()
             return
 
+        if stripped.lower() == "/model":
+            await self._select_model()
+            return
+
         if stripped.startswith("!"):
             await run_shell_and_print(
                 self.assistant,
@@ -523,6 +547,49 @@ class InlineInterface:
             self.assistant, prompt, logger=self.logger, suppress_suggestion=True
         )
         self.last_shell_output = None
+
+    async def _select_model(self) -> None:
+        """Show available models and allow user to select one with arrow keys."""
+        if PromptSession is None or KeyBindings is None:
+            console.print("Model selection requires prompt_toolkit to be installed.", style="yellow")
+            return
+
+        models = await self.assistant.list_models()
+        if not models:
+            console.print("No models available.", style="yellow")
+            return
+
+        # Simple approach: show models as a list and let user type the number
+        console.print("Available models:", style="bold")
+        for i, model in enumerate(models, 1):
+            if model == self.assistant.model:
+                console.print(f"{i}. {model} (current)", style="green")
+            else:
+                console.print(f"{i}. {model}")
+
+        try:
+            choice = await asyncio.to_thread(input, "Enter model number or name: ")
+            choice = choice.strip()
+            
+            # Check if it's a number
+            if choice.isdigit():
+                index = int(choice) - 1
+                if 0 <= index < len(models):
+                    selected_model = models[index]
+                else:
+                    console.print("Invalid model number.", style="red")
+                    return
+            else:
+                # Check if it's a model name
+                if choice in models:
+                    selected_model = choice
+                else:
+                    console.print("Invalid model name.", style="red")
+                    return
+            
+            self.assistant.switch_model(selected_model)
+        except (ValueError, EOFError):
+            console.print("Invalid input.", style="red")
 
     async def _run_basic_loop(self) -> None:  # pragma: no cover - fallback path
         while True:
