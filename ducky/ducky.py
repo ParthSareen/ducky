@@ -528,7 +528,8 @@ class InlineInterface:
             self._code_sent = True
         self.last_command = result.command
         self.pending_command = result.command
-        self.last_shell_output = None
+        # Set last_shell_output to True so empty Enter will explain the result
+        self.last_shell_output = True
 
     async def _explain_last_command(self) -> None:
         if not self.assistant.messages or len(self.assistant.messages) < 2:
