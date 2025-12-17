@@ -238,6 +238,14 @@ class RubberDuck:
             changes rather than responding to each line individually.
             """
         ).strip()
+        
+        # Set OLLAMA_HOST based on whether it's a cloud model
+        if "-cloud" in model:
+            os.environ["OLLAMA_HOST"] = "https://ollama.com"
+        elif "OLLAMA_HOST" not in os.environ:
+            # Default to localhost if not set and not a cloud model
+            os.environ["OLLAMA_HOST"] = "http://localhost:11434"
+            
         self.client = AsyncClient()
         self.model = model
         self.quick = quick
@@ -387,6 +395,19 @@ class RubberDuck:
     def switch_model(self, model_name: str) -> None:
         """Switch to a different Ollama model."""
         self.model = model_name
+        
+        # Set OLLAMA_HOST based on whether it's a cloud model
+        if "-cloud" in model_name:
+            os.environ["OLLAMA_HOST"] = "https://ollama.com"
+            # Reinitialize the client with the new host
+            self.client = AsyncClient()
+        else:
+            # For local models, ensure we're using localhost
+            if "OLLAMA_HOST" in os.environ and os.environ["OLLAMA_HOST"] == "https://ollama.com":
+                os.environ["OLLAMA_HOST"] = "http://localhost:11434"
+                # Reinitialize the client with the new host
+                self.client = AsyncClient()
+        
         console.print(f"Switched to model: {model_name}", style="green")
 
     def clear_history(self) -> None:
