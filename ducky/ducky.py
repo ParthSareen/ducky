@@ -389,6 +389,12 @@ class RubberDuck:
         self.model = model_name
         console.print(f"Switched to model: {model_name}", style="green")
 
+    def clear_history(self) -> None:
+        """Reset conversation history to the initial system prompt."""
+        if self.messages:
+            self.messages = [self.messages[0]]
+        console.print("Conversation history cleared.", style="green")
+
 
 class InlineInterface:
     def __init__(
@@ -503,6 +509,10 @@ class InlineInterface:
             await self._run_last_command()
             return
 
+        if stripped.lower() in {"/clear", "/reset"}:
+            await self._clear_history()
+            return
+
         if stripped.lower() == "/model":
             await self._select_model()
             return
@@ -547,6 +557,12 @@ class InlineInterface:
         await run_single_prompt(
             self.assistant, prompt, logger=self.logger, suppress_suggestion=True
         )
+        self.last_shell_output = None
+
+    async def _clear_history(self) -> None:
+        self.assistant.clear_history()
+        self.last_command = None
+        self.pending_command = None
         self.last_shell_output = None
 
     async def _select_model(self) -> None:
