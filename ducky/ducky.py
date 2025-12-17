@@ -7,7 +7,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 
-# import json included earlier
+import json
 from typing import Dict
 from pathlib import Path
 from textwrap import dedent
@@ -489,6 +489,9 @@ class InlineInterface:
             logger=self.logger,
             history=self.assistant.messages,
         )
+        # Add the command to prompt history so user can recall it with up arrow
+        if self.session and self.session.history and self.last_command:
+            self.session.history.append_string(self.last_command)
         self.last_shell_output = True
         self.pending_command = None
         self.last_command = None
@@ -517,13 +520,21 @@ class InlineInterface:
             await self._select_model()
             return
 
+        if stripped.lower() == "/cloud":
+            await self._select_model(cloud_only=True)
+            return
+
         if stripped.startswith("!"):
+            command = stripped[1:].strip()
             await run_shell_and_print(
                 self.assistant,
-                stripped[1:].strip(),
+                command,
                 logger=self.logger,
                 history=self.assistant.messages,
             )
+            # Add the command to prompt history so user can recall it with up arrow
+            if self.session and self.session.history and command:
+                self.session.history.append_string(command)
             self.last_shell_output = True
             self.pending_command = None
             return
@@ -565,7 +576,7 @@ class InlineInterface:
         self.pending_command = None
         self.last_shell_output = None
 
-    async def _select_model(self) -> None:
+    async def _select_model(self, cloud_only: bool = False) -> None:
         """Show available models and allow user to select one with arrow keys."""
         if PromptSession is None or KeyBindings is None:
             console.print("Model selection requires prompt_toolkit to be installed.", style="yellow")
@@ -576,8 +587,16 @@ class InlineInterface:
             console.print("No models available.", style="yellow")
             return
 
-        # Simple approach: show models as a list and let user type the number
-        console.print("Available models:", style="bold")
+        # Filter models if cloud_only is True
+        if cloud_only:
+            models = [model for model in models if "-cloud" in model]
+            if not models:
+                console.print("No cloud models available.", style="yellow")
+                return
+            console.print("Available cloud models:", style="bold")
+        else:
+            console.print("Available models:", style="bold")
+            
         for i, model in enumerate(models, 1):
             if model == self.assistant.model:
                 console.print(f"{i}. {model} (current)", style="green")

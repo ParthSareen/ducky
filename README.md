@@ -19,7 +19,7 @@ Requirements:
 ```
 ducky                 # interactive inline session
 ducky --directory src  # preload code from a directory
-ducky --model llama3   # use a different Ollama model
+ducky --model qwen3 # use a different Ollama model
 ```
 
 Both `ducky` and `rubber-ducky` executables map to the same CLI, so `uvx rubber-ducky -- <args>` works as well.
@@ -37,6 +37,32 @@ Launching `ducky` with no arguments opens the inline interface:
 - If `prompt_toolkit` is unavailable in your environment, Rubber Ducky falls back to a basic input loop (no history or shortcuts); install `prompt-toolkit>=3.0.48` to unlock the richer UI.
 
 `ducky --directory <path>` streams the contents of the provided directory to the assistant the next time you submit a prompt (the directory is read once at startup).
+
+## Crumbs
+
+Crumbs are simple scripts that can be executed within Rubber Ducky. They are stored in `~/.ducky/crumbs/` and can be referenced by name in your prompts.
+
+To use a crumb, simply mention it in your prompt:
+```
+Can you use the uv-server crumb to run the HuggingFace prompt renderer?
+```
+
+### Creating Crumbs
+
+To create a new crumb:
+
+1. Create a new directory in `~/.ducky/crumbs/` with your crumb name
+2. Add an `info.txt` file with metadata:
+   ```
+   name: your-crumb-name
+   type: shell
+   description: Brief description of what this crumb does
+   ```
+3. Add your executable script file (e.g., `your-crumb-name.sh`)
+4. Create a symbolic link in `~/.local/bin` to make it available as a command:
+   ```bash
+   ln -s ~/.ducky/crumbs/your-crumb-name/your-crumb-name.sh ~/.local/bin/your-crumb-name
+   ```
 
 ## Development (uv)
 
