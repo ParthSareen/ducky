@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import argparse
-import os
 import asyncio
+import json
+import os
 import sys
 from dataclasses import dataclass
-from datetime import datetime
-
-import json
-from typing import Dict
+from datetime import UTC, datetime
+from rich.console import Console
 from pathlib import Path
 from textwrap import dedent
 from typing import Any, Dict, List
@@ -23,19 +22,22 @@ class Crumb:
     description: str | None = None
 
 
-from ollama import AsyncClient
 from contextlib import nullcontext
+
+from ollama import AsyncClient
+
+from config import ConfigManager
 
 try:  # prompt_toolkit is optional at runtime
     from prompt_toolkit import PromptSession
+    from prompt_toolkit.application import Application
     from prompt_toolkit.history import FileHistory
     from prompt_toolkit.key_binding import KeyBindings
-    from prompt_toolkit.patch_stdout import patch_stdout
-    from prompt_toolkit.application import Application
     from prompt_toolkit.key_binding.bindings.focus import focus_next, focus_previous
     from prompt_toolkit.layout.containers import HSplit, Window
     from prompt_toolkit.layout.controls import FormattedTextControl
     from prompt_toolkit.layout.layout import Layout
+    from prompt_toolkit.patch_stdout import patch_stdout
     from prompt_toolkit.styles import Style
     from prompt_toolkit.widgets import Box, Button, Dialog, Label, TextArea
 except ImportError:  # pragma: no cover - fallback mode
@@ -45,9 +47,6 @@ except ImportError:  # pragma: no cover - fallback mode
 
     def patch_stdout() -> nullcontext:
         return nullcontext()
-
-
-from rich.console import Console
 
 
 @dataclass
@@ -165,9 +164,7 @@ class ConversationLogger:
         )
 
     def _append(self, entry: Dict[str, Any]) -> None:
-        import json
-
-        entry["timestamp"] = datetime.utcnow().isoformat()
+        entry["timestamp"] = datetime.now(UTC).isoformat()
         with self.log_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry, ensure_ascii=False))
             handle.write("\n")
@@ -223,7 +220,11 @@ async def run_shell_and_print(
 
 class RubberDuck:
     def __init__(
-        self, model: str, quick: bool = False, command_mode: bool = False
+        self,
+        model: str,
+        quick: bool = False,
+        command_mode: bool = False,
+        host: str = "",
     ) -> None:
         self.system_prompt = dedent(
             """
@@ -238,14 +239,16 @@ class RubberDuck:
             changes rather than responding to each line individually.
             """
         ).strip()
-        
+
         # Set OLLAMA_HOST based on whether it's a cloud model
-        if "-cloud" in model:
+        if host:
+            os.environ["OLLAMA_HOST"] = host
+        elif "-cloud" in model:
             os.environ["OLLAMA_HOST"] = "https://ollama.com"
         elif "OLLAMA_HOST" not in os.environ:
             # Default to localhost if not set and not a cloud model
             os.environ["OLLAMA_HOST"] = "http://localhost:11434"
-            
+
         self.client = AsyncClient()
         self.model = model
         self.quick = quick
@@ -269,17 +272,19 @@ class RubberDuck:
         """
         # Start with the base system prompt
         prompt_lines = [self.system_prompt]
-        
+
         if self.crumbs:
-            prompt_lines.append("\nCrumbs are simple scripts you can run with bash, uv, or bun.")
+            prompt_lines.append(
+                "\nCrumbs are simple scripts you can run with bash, uv, or bun."
+            )
             prompt_lines.append("Crumbs:")
             for c in self.crumbs.values():
                 description = c.description or "no description"
                 prompt_lines.append(f"- {c.name}: {description}")
-        
+
         # Update the system prompt
         self.system_prompt = "\n".join(prompt_lines)
-        
+
         # Update the first system message in the messages list
         if self.messages and self.messages[0]["role"] == "system":
             self.messages[0]["content"] = self.system_prompt
@@ -383,31 +388,46 @@ class RubberDuck:
 
         return command or None
 
-    async def list_models(self) -> list[str]:
+    async def list_models(self, host: str = "") -> list[str]:
         """List available Ollama models."""
+        # Set the host temporarily for this operation
+        original_host = os.environ.get("OLLAMA_HOST", "")
+        if host:
+            os.environ["OLLAMA_HOST"] = host
+            self.client = AsyncClient(host)
         try:
             response = await self.client.list()
-            return [model.model for model in response.models]
+            models = []
+            for m in response.models:
+                models.append(m.model)
+            return models
         except Exception as e:
             console.print(f"Error listing models: {e}", style="red")
             return []
+        finally:
+            # Restore original host
+            if original_host:
+                os.environ["OLLAMA_HOST"] = original_host
+                self.client = AsyncClient(original_host)
+            elif "OLLAMA_HOST" in os.environ:
+                del os.environ["OLLAMA_HOST"]
+                self.client = AsyncClient()
 
-    def switch_model(self, model_name: str) -> None:
+    def switch_model(self, model_name: str, host: str = "") -> None:
         """Switch to a different Ollama model."""
         self.model = model_name
-        
-        # Set OLLAMA_HOST based on whether it's a cloud model
-        if "-cloud" in model_name:
+
+        # Set the host based on the model or explicit host
+        if host:
+            os.environ["OLLAMA_HOST"] = host
+            self.client = AsyncClient(host)
+        elif "-cloud" in model_name:
             os.environ["OLLAMA_HOST"] = "https://ollama.com"
-            # Reinitialize the client with the new host
-            self.client = AsyncClient()
+            self.client = AsyncClient("https://ollama.com")
         else:
-            # For local models, ensure we're using localhost
-            if "OLLAMA_HOST" in os.environ and os.environ["OLLAMA_HOST"] == "https://ollama.com":
-                os.environ["OLLAMA_HOST"] = "http://localhost:11434"
-                # Reinitialize the client with the new host
-                self.client = AsyncClient()
-        
+            os.environ["OLLAMA_HOST"] = "http://localhost:11434"
+            self.client = AsyncClient()
+
         console.print(f"Switched to model: {model_name}", style="green")
 
     def clear_history(self) -> None:
@@ -489,7 +509,7 @@ class InlineInterface:
                 console.print()
                 console.print("Exiting.", style="dim")
                 return
-            except KeyboardInterrupt:
+            except (KeyboardInterrupt, asyncio.CancelledError):
                 console.print()
                 console.print("Interrupted. Press Ctrl+D to exit.", style="yellow")
                 continue
@@ -541,8 +561,12 @@ class InlineInterface:
             await self._select_model()
             return
 
+        if stripped.lower() == "/local":
+            await self._select_model(host="http://localhost:11434")
+            return
+
         if stripped.lower() == "/cloud":
-            await self._select_model(cloud_only=True)
+            await self._select_model(host="https://ollama.com")
             return
 
         if stripped.startswith("!"):
@@ -597,37 +621,75 @@ class InlineInterface:
         self.pending_command = None
         self.last_shell_output = None
 
-    async def _select_model(self, cloud_only: bool = False) -> None:
+    async def _select_model(self, host: str = "") -> None:
         """Show available models and allow user to select one with arrow keys."""
         if PromptSession is None or KeyBindings is None:
-            console.print("Model selection requires prompt_toolkit to be installed.", style="yellow")
+            console.print(
+                "Model selection requires prompt_toolkit to be installed.",
+                style="yellow",
+            )
             return
 
-        models = await self.assistant.list_models()
-        if not models:
-            console.print("No models available.", style="yellow")
-            return
-
-        # Filter models if cloud_only is True
-        if cloud_only:
-            models = [model for model in models if "-cloud" in model]
-            if not models:
-                console.print("No cloud models available.", style="yellow")
-                return
-            console.print("Available cloud models:", style="bold")
-        else:
-            console.print("Available models:", style="bold")
+        # Show current model
+        console.print(f"Current model: {self.assistant.model}", style="bold green")
+        
+        # If no host specified, give user a choice between local and cloud
+        if not host:
+            console.print("\nSelect model type:", style="bold")
+            console.print("1. Local models (localhost:11434)")
+            console.print("2. Cloud models (ollama.com)")
+            console.print("Press Esc to cancel", style="dim")
             
+            try:
+                choice = await asyncio.to_thread(input, "Enter choice (1 or 2): ")
+                choice = choice.strip()
+                
+                if choice.lower() == "esc":
+                    console.print("Model selection cancelled.", style="yellow")
+                    return
+                
+                if choice == "1":
+                    host = "http://localhost:11434"
+                elif choice == "2":
+                    host = "https://ollama.com"
+                else:
+                    console.print("Invalid choice. Please select 1 or 2.", style="red")
+                    return
+            except (ValueError, EOFError):
+                console.print("Invalid input.", style="red")
+                return
+
+        models = await self.assistant.list_models(host)
+        if not models:
+            if host == "http://localhost:11434":
+                console.print("No local models available. Is Ollama running?", style="red")
+                console.print("Start Ollama with: ollama serve", style="yellow")
+            else:
+                console.print("No models available.", style="yellow")
+            return
+
+        if host == "https://ollama.com":
+            console.print("\nAvailable cloud models:", style="bold")
+        elif host == "http://localhost:11434":
+            console.print("\nAvailable local models:", style="bold")
+        else:
+            console.print("\nAvailable models:", style="bold")
+
         for i, model in enumerate(models, 1):
             if model == self.assistant.model:
                 console.print(f"{i}. {model} (current)", style="green")
             else:
                 console.print(f"{i}. {model}")
 
+        console.print("Press Esc to cancel", style="dim")
         try:
             choice = await asyncio.to_thread(input, "Enter model number or name: ")
             choice = choice.strip()
-            
+
+            if choice.lower() == "esc":
+                console.print("Model selection cancelled.", style="yellow")
+                return
+
             # Check if it's a number
             if choice.isdigit():
                 index = int(choice) - 1
@@ -643,8 +705,15 @@ class InlineInterface:
                 else:
                     console.print("Invalid model name.", style="red")
                     return
-            
-            self.assistant.switch_model(selected_model)
+
+            self.assistant.switch_model(selected_model, host)
+
+            # Save the selected model and host to config
+            config_manager = ConfigManager()
+            config_manager.save_last_model(
+                selected_model,
+                host or os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
+            )
         except (ValueError, EOFError):
             console.print("Invalid input.", style="red")
 
@@ -656,7 +725,7 @@ class InlineInterface:
                 console.print()
                 console.print("Exiting.", style="dim")
                 return
-            except KeyboardInterrupt:
+            except (KeyboardInterrupt, asyncio.CancelledError):
                 console.print()
                 console.print("Interrupted. Press Ctrl+D to exit.", style="yellow")
                 continue
@@ -724,9 +793,7 @@ async def ducky() -> None:
     parser.add_argument(
         "--directory", "-d", help="The directory to be processed", default=None
     )
-    parser.add_argument(
-        "--model", "-m", help="The model to be used", default="qwen3-coder:480b-cloud"
-    )
+    parser.add_argument("--model", "-m", help="The model to be used", default=None)
     parser.add_argument(
         "--local",
         "-l",
@@ -737,11 +804,27 @@ async def ducky() -> None:
 
     ensure_history_dir()
     logger = ConversationLogger(CONVERSATION_LOG_FILE)
+
+    # Load the last used model from config if no model is specified
+    config_manager = ConfigManager()
+    last_model, last_host = config_manager.get_last_model()
+
+    # If --local flag is used, override with local settings
     if getattr(args, "local", False):
         # Point Ollama client to local host and use gemma3 as default model
         os.environ["OLLAMA_HOST"] = "http://localhost:11434"
-        args.model = "gpt-oss:20b"
-    rubber_ducky = RubberDuck(model=args.model, quick=False, command_mode=True)
+        args.model = args.model or "gemma2:9b"
+        last_host = "http://localhost:11434"
+    # If no model is specified, use the last used model
+    elif args.model is None:
+        args.model = last_model
+        # Set the host based on the last used host
+        if last_host:
+            os.environ["OLLAMA_HOST"] = last_host
+
+    rubber_ducky = RubberDuck(
+        model=args.model, quick=False, command_mode=True, host=last_host
+    )
 
     code = read_files_from_dir(args.directory) if args.directory else None
 
