@@ -503,7 +503,7 @@ class InlineInterface:
             return
 
         console.print(
-            "Enter submits • empty Enter reruns the last suggested command (or explains the last shell output) • '!cmd' runs shell • Ctrl+D exits • Ctrl+S copies last command",
+            "Enter submits • empty Enter reruns the last suggested command (or explains the last shell output) • '!<cmd>' runs shell • Ctrl+D exits • Ctrl+S copies last command",
             style="dim",
         )
         while True:
@@ -534,46 +534,36 @@ class InlineInterface:
         if not self.last_command:
             console.print("No suggested command available to copy.", style="yellow")
             return
-            
+
         try:
             import subprocess
             import platform
-            
+
             command_to_copy = self.last_command
-            
+
             system = platform.system()
             if system == "Darwin":  # macOS
-                process = subprocess.Popen(
-                    ['pbcopy'], 
-                    stdin=subprocess.PIPE, 
-                    text=True
-                )
+                process = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE, text=True)
                 process.communicate(input=command_to_copy)
             elif system == "Windows":
-                process = subprocess.Popen(
-                    ['clip'], 
-                    stdin=subprocess.PIPE, 
-                    text=True
-                )
+                process = subprocess.Popen(["clip"], stdin=subprocess.PIPE, text=True)
                 process.communicate(input=command_to_copy)
             else:  # Linux and others
                 # Try xclip first, then xsel as fallback
                 try:
                     process = subprocess.Popen(
-                        ['xclip', '-selection', 'clipboard'], 
-                        stdin=subprocess.PIPE, 
-                        text=True
+                        ["xclip", "-selection", "clipboard"],
+                        stdin=subprocess.PIPE,
+                        text=True,
                     )
                     process.communicate(input=command_to_copy)
                 except FileNotFoundError:
                     # Try xsel as fallback
                     process = subprocess.Popen(
-                        ['xsel', '-b', '-i'], 
-                        stdin=subprocess.PIPE, 
-                        text=True
+                        ["xsel", "-b", "-i"], stdin=subprocess.PIPE, text=True
                     )
                     process.communicate(input=command_to_copy)
-                
+
             console.print(f"Copied to clipboard: {command_to_copy}", style="green")
         except Exception as e:
             console.print(f"Failed to copy to clipboard: {e}", style="red")
@@ -684,26 +674,37 @@ class InlineInterface:
         console.print("\nDucky CLI Help", style="bold blue")
         console.print("===============", style="bold blue")
         console.print()
-        
+
         commands = [
             ("[bold]/help[/bold]", "Show this help message"),
             ("[bold]/model[/bold]", "Select a model interactively (local or cloud)"),
-            ("[bold]/local[/bold]", "List and select from local models (localhost:11434)"),
+            (
+                "[bold]/local[/bold]",
+                "List and select from local models (localhost:11434)",
+            ),
             ("[bold]/cloud[/bold]", "List and select from cloud models (ollama.com)"),
-            ("[bold]/clear[/bold] or [bold]/reset[/bold]", "Clear conversation history"),
-            ("[bold]/run[/bold] or [bold]:run[/bold]", "Re-run the last suggested command"),
-            ("[bold]![command][/bold]", "Execute a shell command directly"),
+            (
+                "[bold]/clear[/bold] or [bold]/reset[/bold]",
+                "Clear conversation history",
+            ),
+            (
+                "[bold]/run[/bold]",
+                "Re-run the last suggested command",
+            ),
+            (
+                "[bold]Empty Enter[/bold]",
+                "Re-run suggested command or explain last output",
+            ),
+            ("[bold]![<command>][/bold]", "Execute a shell command directly"),
             ("[bold]Ctrl+D[/bold]", "Exit the application"),
             ("[bold]Ctrl+R[/bold]", "Re-run the last suggested command"),
             ("[bold]Ctrl+S[/bold]", "Copy the last suggested command to clipboard"),
-            ("[bold]Empty Enter[/bold]", "Re-run last command or explain last output"),
         ]
-        
+
         for command, description in commands:
             console.print(f"{command:<30} {description}")
-        
+
         console.print()
-        console.print("For model selection, type 'esc' when prompted to cancel.", style="dim")
 
     async def _clear_history(self) -> None:
         self.assistant.clear_history()
@@ -722,22 +723,22 @@ class InlineInterface:
 
         # Show current model
         console.print(f"Current model: {self.assistant.model}", style="bold green")
-        
+
         # If no host specified, give user a choice between local and cloud
         if not host:
             console.print("\nSelect model type:", style="bold")
             console.print("1. Local models (localhost:11434)")
             console.print("2. Cloud models (ollama.com)")
             console.print("Press Esc to cancel", style="dim")
-            
+
             try:
                 choice = await asyncio.to_thread(input, "Enter choice (1 or 2): ")
                 choice = choice.strip()
-                
+
                 if choice.lower() == "esc":
                     console.print("Model selection cancelled.", style="yellow")
                     return
-                
+
                 if choice == "1":
                     host = "http://localhost:11434"
                 elif choice == "2":
@@ -752,7 +753,9 @@ class InlineInterface:
         models = await self.assistant.list_models(host)
         if not models:
             if host == "http://localhost:11434":
-                console.print("No local models available. Is Ollama running?", style="red")
+                console.print(
+                    "No local models available. Is Ollama running?", style="red"
+                )
                 console.print("Start Ollama with: ollama serve", style="yellow")
             else:
                 console.print("No models available.", style="yellow")
