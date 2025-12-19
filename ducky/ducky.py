@@ -486,6 +486,11 @@ class InlineInterface:
         def _(event) -> None:
             event.app.exit(result="__RUN_LAST__")
 
+        @kb.add("c-s")
+        def _(event) -> None:
+            # This will be handled in the processing loop
+            event.app.exit(result="__COPY_LAST__")
+
         return kb
 
     async def run(self) -> None:
@@ -498,7 +503,7 @@ class InlineInterface:
             return
 
         console.print(
-            "Enter submits • empty Enter reruns the last suggested command (or explains the last shell output) • '!cmd' runs shell • Ctrl+D exits",
+            "Enter submits • empty Enter reruns the last suggested command (or explains the last shell output) • '!cmd' runs shell • Ctrl+D exits • Ctrl+S copies last command",
             style="dim",
         )
         while True:
@@ -518,7 +523,62 @@ class InlineInterface:
                 await self._run_last_command()
                 continue
 
+            if text == "__COPY_LAST__":
+                await self._copy_last_command()
+                continue
+
             await self._process_text(text)
+
+    async def _copy_last_command(self) -> None:
+        """Copy the last suggested command to clipboard."""
+        if not self.last_command:
+            console.print("No suggested command available to copy.", style="yellow")
+            return
+            
+        try:
+            import subprocess
+            import platform
+            
+            command_to_copy = self.last_command
+            
+            system = platform.system()
+            if system == "Darwin":  # macOS
+                process = subprocess.Popen(
+                    ['pbcopy'], 
+                    stdin=subprocess.PIPE, 
+                    text=True
+                )
+                process.communicate(input=command_to_copy)
+            elif system == "Windows":
+                process = subprocess.Popen(
+                    ['clip'], 
+                    stdin=subprocess.PIPE, 
+                    text=True
+                )
+                process.communicate(input=command_to_copy)
+            else:  # Linux and others
+                # Try xclip first, then xsel as fallback
+                try:
+                    process = subprocess.Popen(
+                        ['xclip', '-selection', 'clipboard'], 
+                        stdin=subprocess.PIPE, 
+                        text=True
+                    )
+                    process.communicate(input=command_to_copy)
+                except FileNotFoundError:
+                    # Try xsel as fallback
+                    process = subprocess.Popen(
+                        ['xsel', '-b', '-i'], 
+                        stdin=subprocess.PIPE, 
+                        text=True
+                    )
+                    process.communicate(input=command_to_copy)
+                
+            console.print(f"Copied to clipboard: {command_to_copy}", style="green")
+        except Exception as e:
+            console.print(f"Failed to copy to clipboard: {e}", style="red")
+            console.print("You can manually copy the last command:", style="dim")
+            console.print(f"  {self.last_command}", style="bold")
 
     async def _run_last_command(self) -> None:
         if not self.last_command:
@@ -569,6 +629,10 @@ class InlineInterface:
             await self._select_model(host="https://ollama.com")
             return
 
+        if stripped.lower() == "/help":
+            await self._show_help()
+            return
+
         if stripped.startswith("!"):
             command = stripped[1:].strip()
             await run_shell_and_print(
@@ -614,6 +678,32 @@ class InlineInterface:
             self.assistant, prompt, logger=self.logger, suppress_suggestion=True
         )
         self.last_shell_output = None
+
+    async def _show_help(self) -> None:
+        """Display help information for all available commands."""
+        console.print("\nDucky CLI Help", style="bold blue")
+        console.print("===============", style="bold blue")
+        console.print()
+        
+        commands = [
+            ("[bold]/help[/bold]", "Show this help message"),
+            ("[bold]/model[/bold]", "Select a model interactively (local or cloud)"),
+            ("[bold]/local[/bold]", "List and select from local models (localhost:11434)"),
+            ("[bold]/cloud[/bold]", "List and select from cloud models (ollama.com)"),
+            ("[bold]/clear[/bold] or [bold]/reset[/bold]", "Clear conversation history"),
+            ("[bold]/run[/bold] or [bold]:run[/bold]", "Re-run the last suggested command"),
+            ("[bold]![command][/bold]", "Execute a shell command directly"),
+            ("[bold]Ctrl+D[/bold]", "Exit the application"),
+            ("[bold]Ctrl+R[/bold]", "Re-run the last suggested command"),
+            ("[bold]Ctrl+S[/bold]", "Copy the last suggested command to clipboard"),
+            ("[bold]Empty Enter[/bold]", "Re-run last command or explain last output"),
+        ]
+        
+        for command, description in commands:
+            console.print(f"{command:<30} {description}")
+        
+        console.print()
+        console.print("For model selection, type 'esc' when prompted to cancel.", style="dim")
 
     async def _clear_history(self) -> None:
         self.assistant.clear_history()
