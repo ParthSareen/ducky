@@ -26,7 +26,7 @@ from contextlib import nullcontext
 
 from ollama import AsyncClient
 
-from config import ConfigManager
+from .config import ConfigManager
 
 try:  # prompt_toolkit is optional at runtime
     from prompt_toolkit import PromptSession
