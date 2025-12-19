@@ -20,6 +20,7 @@ Requirements:
 ducky                 # interactive inline session
 ducky --directory src  # preload code from a directory
 ducky --model qwen3 # use a different Ollama model
+ducky --local       # use local models with gemma2:9b default
 ```
 
 Both `ducky` and `rubber-ducky` executables map to the same CLI, so `uvx rubber-ducky -- <args>` works as well.
@@ -29,6 +30,7 @@ Both `ducky` and `rubber-ducky` executables map to the same CLI, so `uvx rubber-
 Launching `ducky` with no arguments opens the inline interface:
 - **Enter** submits; **Ctrl+J** inserts a newline (helpful when crafting multi-line prompts). Hitting **Enter on an empty prompt** reruns the latest suggested command; if none exists yet, it explains the most recent shell output.
 - **Ctrl+R** re-runs the last suggested command.
+- **Ctrl+S** copies the last suggested command to clipboard.
 - Prefix any line with **`!`** (e.g., `!ls -la`) to run a shell command immediately.
 - Arrow keys browse prompt history, backed by `~/.ducky/prompt_history`.
 - Every prompt, assistant response, and executed command is logged to `~/.ducky/conversation.log`.
@@ -37,6 +39,21 @@ Launching `ducky` with no arguments opens the inline interface:
 - If `prompt_toolkit` is unavailable in your environment, Rubber Ducky falls back to a basic input loop (no history or shortcuts); install `prompt-toolkit>=3.0.48` to unlock the richer UI.
 
 `ducky --directory <path>` streams the contents of the provided directory to the assistant the next time you submit a prompt (the directory is read once at startup).
+
+### Model Management
+
+Rubber Ducky now supports easy switching between local and cloud models:
+- **`/model`** - Interactive model selection between local and cloud models
+- **`/local`** - List and select from local models (localhost:11434)
+- **`/cloud`** - List and select from cloud models (ollama.com)
+- Last used model is automatically saved and loaded on startup
+- Type **`esc`** during model selection to cancel
+
+### Additional Commands
+
+- **`/help`** - Show all available commands and shortcuts
+- **`/clear`** or **`/reset`** - Clear conversation history
+- **`/run`** or **`:run`** - Re-run the last suggested command
 
 ## Crumbs
 
@@ -78,5 +95,6 @@ uv run ducky --help
 Rubber Ducky stores:
 - `~/.ducky/prompt_history`: readline-compatible history file.
 - `~/.ducky/conversation.log`: JSON lines with timestamps for prompts, assistant messages, and shell executions.
+- `~/.ducky/config`: User preferences including last selected model.
 
 No other telemetry is collected; delete the directory if you want a fresh slate.
