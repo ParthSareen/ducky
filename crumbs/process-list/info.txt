@@ -1,0 +1,3 @@
+name: process-list
+type: shell
+description: Show running processes with key information
