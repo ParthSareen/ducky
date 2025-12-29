@@ -22,6 +22,11 @@ class Crumb:
     description: str | None = None
 
 
+    poll: bool = False
+    poll_type: str | None = None  # "interval" or "continuous"
+    poll_interval: int = 2
+    poll_prompt: str | None = None
+
 from contextlib import nullcontext
 
 from ollama import AsyncClient
