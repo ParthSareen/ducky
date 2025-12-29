@@ -17,10 +17,11 @@ Requirements:
 ## Usage
 
 ```
-ducky                 # interactive inline session
-ducky --directory src  # preload code from a directory
-ducky --model qwen3 # use a different Ollama model
-ducky --local       # use local models with gemma2:9b default
+ducky                      # interactive inline session
+ducky --directory src      # preload code from a directory
+ducky --model qwen3        # use a different Ollama model
+ducky --local              # use local models with gemma2:9b default
+ducky --poll log-crumb     # start polling mode for a crumb
 ```
 
 Both `ducky` and `rubber-ducky` executables map to the same CLI, so `uvx rubber-ducky -- <args>` works as well.
@@ -52,17 +53,37 @@ Rubber Ducky now supports easy switching between local and cloud models:
 ### Additional Commands
 
 - **`/help`** - Show all available commands and shortcuts
+- **`/crumbs`** - List all available crumbs (default and user-created)
 - **`/clear`** or **`/reset`** - Clear conversation history
+- **`/poll <crumb>`** - Start polling session for a crumb
+- **`/poll <crumb> -i <interval>`** - Start polling with custom interval
+- **`/poll <crumb> -p <prompt>`** - Start polling with custom prompt
+- **`/stop-poll`** - Stop current polling session
 - **`/run`** or **`:run`** - Re-run the last suggested command
 
 ## Crumbs
 
-Crumbs are simple scripts that can be executed within Rubber Ducky. They are stored in `~/.ducky/crumbs/` and can be referenced by name in your prompts.
+Crumbs are simple scripts that can be executed within Rubber Ducky. They are stored in `~/.ducky/crumbs/` (for user crumbs) and shipped with the package (default crumbs).
+
+Rubber Ducky ships with the following default crumbs:
+
+| Crumb | Description |
+|-------|-------------|
+| `git-status` | Show current git status and provide suggestions |
+| `git-log` | Show recent commit history with detailed information |
+| `recent-files` | Show recently modified files in current directory |
+| `disk-usage` | Show disk usage with highlights |
+| `system-health` | Show CPU, memory, and system load metrics |
+| `process-list` | Show running processes with analysis |
+
+**Tip:** Run `/crumbs` in interactive mode to see all available crumbs with descriptions and polling status.
 
 To use a crumb, simply mention it in your prompt:
 ```
-Can you use the uv-server crumb to run the HuggingFace prompt renderer?
+Can you use the git-status crumb to see what needs to be committed?
 ```
+
+**Note:** User-defined crumbs (in `~/.ducky/crumbs/`) override default crumbs with the same name.
 
 ### Creating Crumbs
 
@@ -80,6 +101,79 @@ To create a new crumb:
    ```bash
    ln -s ~/.ducky/crumbs/your-crumb-name/your-crumb-name.sh ~/.local/bin/your-crumb-name
    ```
+
+### Polling Mode
+
+Crumbs can be configured for background polling, where the crumb script runs at intervals and the AI analyzes the output.
+
+**Enabling Polling in a Crumb:**
+
+Add polling configuration to your crumb's `info.txt`:
+```
+name: log-crumb
+type: shell
+description: Fetch and analyze server logs
+poll: true
+poll_type: interval          # "interval" (run repeatedly) or "continuous" (run once, tail output)
+poll_interval: 5             # seconds between polls
+poll_prompt: Analyze these logs for errors, warnings, or anomalies. Be concise.
+```
+
+**Polling via CLI:**
+
+```bash
+# Start polling with crumb's default configuration
+ducky --poll log-crumb
+
+# Override interval
+ducky --poll log-crumb --interval 10
+
+# Override prompt
+ducky --poll log-crumb --prompt "Extract only error messages"
+```
+
+**Polling via Interactive Mode:**
+
+```bash
+ducky
+>> /poll log-crumb                    # Use crumb defaults
+>> /poll log-crumb -i 10              # Override interval
+>> /poll log-crumb -p "Summarize"     # Override prompt
+>> /stop-poll                         # Stop polling
+```
+
+**Example Crumb with Polling:**
+
+Directory: `~/.ducky/crumbs/server-logs/`
+
+```
+info.txt:
+  name: server-logs
+  type: shell
+  description: Fetch and analyze server logs
+  poll: true
+  poll_type: interval
+  poll_interval: 5
+  poll_prompt: Analyze these logs for errors, warnings, or anomalies. Be concise.
+
+server-logs.sh:
+  #!/bin/bash
+  curl -s http://localhost:8080/logs | tail -50
+```
+
+**Polling Types:**
+
+- **interval**: Run the crumb script at regular intervals (default)
+- **continuous**: Run the crumb once in the background and stream its output, analyzing periodically
+
+**Stopping Polling:**
+
+Press `Ctrl+C` at any time to stop polling. In interactive mode, you can also use `/stop-poll`.
+
+## Documentation
+
+- **Polling Feature Guide**: See [POLLING_USER_GUIDE.md](POLLING_USER_GUIDE.md) for detailed instructions on creating and using polling crumbs
+- **Test Output Examples**: See [POLLING_TEST_OUTPUTS.md](POLLING_TEST_OUTPUTS.md) for real examples of polling feature in action
 
 ## Development (uv)
 
