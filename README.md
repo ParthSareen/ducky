@@ -172,8 +172,8 @@ Press `Ctrl+C` at any time to stop polling. In interactive mode, you can also us
 
 ## Documentation
 
-- **Polling Feature Guide**: See [POLLING_USER_GUIDE.md](POLLING_USER_GUIDE.md) for detailed instructions on creating and using polling crumbs
-- **Test Output Examples**: See [POLLING_TEST_OUTPUTS.md](POLLING_TEST_OUTPUTS.md) for real examples of polling feature in action
+- **Polling Feature Guide**: See [examples/POLLING_USER_GUIDE.md](examples/POLLING_USER_GUIDE.md) for detailed instructions on creating and using polling crumbs
+- **Mock Log Crumb**: See [examples/mock-logs/](examples/mock-logs/) for an example polling crumb
 
 ## Development (uv)
 
