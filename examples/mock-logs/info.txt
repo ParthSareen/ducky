@@ -1,0 +1,7 @@
+name: mock-logs
+type: shell
+description: Generate mock log data for testing polling functionality
+poll: true
+poll_type: interval
+poll_interval: 3
+poll_prompt: Analyze these mock logs and identify any errors, warnings, or interesting patterns. Keep it brief.
