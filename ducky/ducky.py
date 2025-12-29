@@ -6,8 +6,8 @@ import json
 import os
 import re
 import shlex
-import signal
 import sys
+import signal
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from rich.console import Console
@@ -23,12 +23,11 @@ class Crumb:
     type: str
     enabled: bool
     description: str | None = None
-
-
     poll: bool = False
     poll_type: str | None = None  # "interval" or "continuous"
     poll_interval: int = 2
     poll_prompt: str | None = None
+
 
 from contextlib import nullcontext
 
@@ -87,61 +86,93 @@ def ensure_history_dir() -> Path:
 
 
 def load_crumbs() -> Dict[str, Crumb]:
-    """Populate the global ``CRUMBS`` dictionary from the ``CRUMBS_DIR``.
+    """Populate the global ``CRUMBS`` dictionary from both default and user crumbs.
 
     Each crumb is expected to be a directory containing an ``info.txt`` and a
     script file matching the ``type`` field (``shell`` → ``*.sh``).
+
+    Default crumbs are loaded from the package directory first, then user crumbs
+    are loaded from ``~/.ducky/crumbs/`` and can override default crumbs if they
+    have the same name.
     """
 
     global CRUMBS
     CRUMBS.clear()
-    if not CRUMBS_DIR.exists():
-        return CRUMBS
 
-    for crumb_dir in CRUMBS_DIR.iterdir():
-        if not crumb_dir.is_dir():
-            continue
-        info_path = crumb_dir / "info.txt"
-        if not info_path.is_file():
-            continue
-        # Parse key: value pairs
-        meta = {}
-        for line in info_path.read_text(encoding="utf-8").splitlines():
-            if ":" not in line:
+    # Helper function to load crumbs from a directory
+    def _load_from_dir(dir_path: Path) -> None:
+        if not dir_path.exists():
+            return
+
+        for crumb_dir in dir_path.iterdir():
+            if not crumb_dir.is_dir():
                 continue
-            key, val = line.split(":", 1)
-            meta[key.strip()] = val.strip()
-        name = meta.get("name", crumb_dir.name)
-        ctype = meta.get("type", "shell")
-        description = meta.get("description")
-        # Find script file: look for executable in the directory
-        script_path: Path | None = None
-        if ctype == "shell":
-            # Prefer a file named <name>.sh if present
-            candidate = crumb_dir / f"{name}.sh"
-            if candidate.is_file() and os.access(candidate, os.X_OK):
-                script_path = candidate
-            else:
-                # Fallback: first .sh in dir
-                for p in crumb_dir.glob("*.sh"):
-                    if os.access(p, os.X_OK):
-                        script_path = p
-                        break
-        # Default to first file if script not found
-        if script_path is None:
-            files = list(crumb_dir.iterdir())
-            if files:
-                script_path = files[0]
-        if script_path is None:
-            continue
-        crumb = Crumb(
-            name=name,
-            path=script_path,
-            type=ctype,
-            enabled=False,
-            description=description,
-        )
-        CRUMBS[name] = crumb
+            info_path = crumb_dir / "info.txt"
+            if not info_path.is_file():
+                continue
+            # Parse key: value pairs
+            meta = {}
+            for line in info_path.read_text(encoding="utf-8").splitlines():
+                if ":" not in line:
+                    continue
+                key, val = line.split(":", 1)
+                meta[key.strip()] = val.strip()
+            name = meta.get("name", crumb_dir.name)
+            ctype = meta.get("type", "shell")
+            description = meta.get("description")
+            poll = meta.get("poll", "").lower() == "true"
+            poll_type = meta.get("poll_type")
+            poll_interval = int(meta.get("poll_interval", 2))
+            poll_prompt = meta.get("poll_prompt")
+            # Find script file: look for executable in the directory
+            script_path: Path | None = None
+            if ctype == "shell":
+                # Prefer a file named <name>.sh if present
+                candidate = crumb_dir / f"{name}.sh"
+                if candidate.is_file() and os.access(candidate, os.X_OK):
+                    script_path = candidate
+                else:
+                    # Fallback: first .sh in dir
+                    for p in crumb_dir.glob("*.sh"):
+                        if os.access(p, os.X_OK):
+                            script_path = p
+                            break
+            # Default to first file if script not found
+            if script_path is None:
+                files = list(crumb_dir.iterdir())
+                if files:
+                    script_path = files[0]
+            if script_path is None:
+                continue
+            crumb = Crumb(
+                name=name,
+                path=script_path,
+                type=ctype,
+                enabled=False,
+                description=description,
+                poll=poll,
+                poll_type=poll_type,
+                poll_interval=poll_interval,
+                poll_prompt=poll_prompt,
+            )
+            CRUMBS[name] = crumb
+
+    # Try to load from package directory (where ducky is installed)
+    try:
+        # Try to locate the crumbs directory relative to the ducky package
+        import ducky
+        # Get the directory containing the ducky package
+        ducky_dir = Path(ducky.__file__).parent
+        # Check if crumbs exists in the same directory as ducky package
+        default_crumbs_dir = ducky_dir.parent / "crumbs"
+        if default_crumbs_dir.exists():
+            _load_from_dir(default_crumbs_dir)
+    except Exception:
+        # If package directory loading fails, continue without default crumbs
+        pass
+
+    # Load user crumbs (these can override default crumbs with the same name)
+    _load_from_dir(CRUMBS_DIR)
 
     return CRUMBS
 
@@ -301,7 +332,7 @@ class RubberDuck:
             self.messages.insert(0, {"role": "system", "content": self.system_prompt})
 
     async def send_prompt(
-        self, prompt: str | None = None, code: str | None = None
+        self, prompt: str | None = None, code: str | None = None, command_mode: bool | None = None
     ) -> AssistantResult:
         user_content = (prompt or "").strip()
 
@@ -313,7 +344,10 @@ class RubberDuck:
         if self.quick and user_content:
             user_content += ". Return a command and be extremely concise"
 
-        if self.command_mode:
+        # Use provided command_mode, or fall back to self.command_mode
+        effective_command_mode = command_mode if command_mode is not None else self.command_mode
+
+        if effective_command_mode:
             instruction = (
                 "Return a single bash command that accomplishes the task. Unless user wants something els"
                 "Do not include explanations or formatting other than the command itself."
@@ -344,7 +378,7 @@ class RubberDuck:
         if thinking:
             self.last_thinking = thinking
 
-        command = self._extract_command(content) if self.command_mode else None
+        command = self._extract_command(content) if effective_command_mode else None
 
         return AssistantResult(content=content, command=command, thinking=thinking)
 
@@ -462,6 +496,7 @@ class InlineInterface:
         self.pending_command: str | None = None
         self.session: PromptSession | None = None
         self.selected_model: str | None = None
+        self.running_polling: bool = False
 
         if (
             PromptSession is not None
@@ -631,6 +666,18 @@ class InlineInterface:
             await self._show_help()
             return
 
+        if stripped.lower() == "/crumbs":
+            await self._show_crumbs()
+            return
+
+        if stripped.lower() == "/stop-poll":
+            await self._stop_polling()
+            return
+
+        if stripped.startswith("/poll"):
+            await self._handle_poll_command(stripped)
+            return
+
         if stripped.startswith("!"):
             command = stripped[1:].strip()
             await run_shell_and_print(
@@ -685,6 +732,7 @@ class InlineInterface:
 
         commands = [
             ("[bold]/help[/bold]", "Show this help message"),
+            ("[bold]/crumbs[/bold]", "List all available crumbs"),
             ("[bold]/model[/bold]", "Select a model interactively (local or cloud)"),
             (
                 "[bold]/local[/bold]",
@@ -694,6 +742,22 @@ class InlineInterface:
             (
                 "[bold]/clear[/bold] or [bold]/reset[/bold]",
                 "Clear conversation history",
+            ),
+            (
+                "[bold]/poll <crumb>[/bold]",
+                "Start polling session for a crumb",
+            ),
+            (
+                "[bold]/poll <crumb> -i 5[/bold]",
+                "Start polling with 5s interval",
+            ),
+            (
+                "[bold]/poll <crumb> -p <text>[/bold]",
+                "Start polling with custom prompt",
+            ),
+            (
+                "[bold]/stop-poll[/bold]",
+                "Stop current polling session",
             ),
             (
                 "[bold]/run[/bold]",
@@ -710,15 +774,139 @@ class InlineInterface:
         ]
 
         for command, description in commands:
-            console.print(f"{command:<30} {description}")
+            console.print(f"{command:<45} {description}")
 
         console.print()
+
+    async def _show_crumbs(self) -> None:
+        """Display all available crumbs."""
+        crumbs = self.assistant.crumbs
+
+        if not crumbs:
+            console.print("No crumbs available.", style="yellow")
+            return
+
+        console.print("\nAvailable Crumbs", style="bold blue")
+        console.print("===============", style="bold blue")
+        console.print()
+
+        # Group crumbs by source (default vs user)
+        default_crumbs = []
+        user_crumbs = []
+
+        for name, crumb in sorted(crumbs.items()):
+            path_str = str(crumb.path)
+            if "crumbs/" in path_str and "/.ducky/crumbs/" not in path_str:
+                default_crumbs.append((name, crumb))
+            else:
+                user_crumbs.append((name, crumb))
+
+        # Show default crumbs
+        if default_crumbs:
+            console.print("[bold cyan]Default Crumbs (shipped with ducky):[/bold cyan]", style="cyan")
+            for name, crumb in default_crumbs:
+                description = crumb.description or "No description"
+                # Check if it has polling enabled
+                poll_info = " [dim](polling enabled)[/dim]" if crumb.poll else ""
+                console.print(f"  [bold]{name}[/bold]{poll_info}: {description}")
+            console.print()
+
+        # Show user crumbs
+        if user_crumbs:
+            console.print("[bold green]Your Crumbs:[/bold green]", style="green")
+            for name, crumb in user_crumbs:
+                description = crumb.description or "No description"
+                # Check if it has polling enabled
+                poll_info = " [dim](polling enabled)[/dim]" if crumb.poll else ""
+                console.print(f"  [bold]{name}[/bold]{poll_info}: {description}")
+            console.print()
+
+        console.print(f"[dim]Total: {len(crumbs)} crumbs available[/dim]")
 
     async def _clear_history(self) -> None:
         self.assistant.clear_history()
         self.last_command = None
         self.pending_command = None
         self.last_shell_output = None
+
+    async def _handle_poll_command(self, command: str) -> None:
+        """Handle /poll command with optional arguments."""
+        if self.running_polling:
+            console.print(
+                "A polling session is already running. Use /stop-poll first.",
+                style="yellow",
+            )
+            return
+
+        # Parse command: /poll <crumb> [-i interval] [-p prompt]
+        parts = command.split()
+        if len(parts) < 2:
+            console.print("Usage: /poll <crumb-name> [-i interval] [-p prompt]", style="yellow")
+            console.print("Example: /poll log-crumb -i 5", style="dim")
+            return
+
+        crumb_name = parts[1]
+        interval = None
+        prompt = None
+
+        # Parse optional arguments
+        i = 2
+        while i < len(parts):
+            if parts[i] in {"-i", "--interval"} and i + 1 < len(parts):
+                try:
+                    interval = int(parts[i + 1])
+                    i += 2
+                except ValueError:
+                    console.print("Invalid interval value.", style="red")
+                    return
+            elif parts[i] in {"-p", "--prompt"} and i + 1 < len(parts):
+                prompt = " ".join(parts[i + 1:])
+                break
+            else:
+                i += 1
+
+        if crumb_name not in self.assistant.crumbs:
+            console.print(f"Crumb '{crumb_name}' not found.", style="red")
+            console.print(
+                f"Available crumbs: {', '.join(self.assistant.crumbs.keys())}",
+                style="yellow",
+            )
+            return
+
+        crumb = self.assistant.crumbs[crumb_name]
+
+        if not crumb.poll:
+            console.print(
+                f"Warning: Crumb '{crumb_name}' doesn't have polling enabled.",
+                style="yellow",
+            )
+            console.print("Proceeding anyway with default polling mode.", style="dim")
+
+        console.print("Starting polling session... Press Ctrl+C to stop.", style="bold cyan")
+
+        self.running_polling = True
+        try:
+            await polling_session(
+                self.assistant,
+                crumb,
+                interval=interval,
+                prompt_override=prompt,
+            )
+        finally:
+            self.running_polling = False
+            console.print("Polling stopped. Returning to interactive mode.", style="green")
+
+    async def _stop_polling(self) -> None:
+        """Handle /stop-poll command."""
+        if not self.running_polling:
+            console.print("No polling session is currently running.", style="yellow")
+            return
+
+        # This is handled by the signal handler in polling_session
+        console.print(
+            "Stopping polling... (press Ctrl+C if it doesn't stop automatically)",
+            style="yellow",
+        )
 
     async def _select_model(self, host: str = "") -> None:
         """Show available models and allow user to select one with arrow keys."""
@@ -889,6 +1077,174 @@ async def interactive_session(
     await ui.run()
 
 
+async def polling_session(
+    rubber_ducky: RubberDuck,
+    crumb: Crumb,
+    interval: int | None = None,
+    prompt_override: str | None = None,
+) -> None:
+    """Run a polling session for a crumb.
+
+    For interval polling: Runs the crumb repeatedly at the specified interval.
+    For continuous polling: Runs the crumb once in background and analyzes output periodically.
+
+    Args:
+        rubber_ducky: The RubberDuck assistant
+        crumb: The crumb to poll
+        interval: Override the crumb's default interval
+        prompt_override: Override the crumb's default poll prompt
+    """
+    # Use overrides or crumb defaults
+    poll_interval = interval or crumb.poll_interval
+    poll_prompt = prompt_override or crumb.poll_prompt or "Analyze this output."
+    poll_type = crumb.poll_type or "interval"
+
+    if not crumb.poll_prompt and not prompt_override:
+        console.print("Warning: No poll prompt configured for this crumb.", style="yellow")
+        console.print(f"Using default prompt: '{poll_prompt}'", style="dim")
+
+    if poll_type == "continuous":
+        await _continuous_polling(rubber_ducky, crumb, poll_interval, poll_prompt)
+    else:
+        await _interval_polling(rubber_ducky, crumb, poll_interval, poll_prompt)
+
+
+async def _interval_polling(
+    rubber_ducky: RubberDuck,
+    crumb: Crumb,
+    interval: int,
+    poll_prompt: str,
+) -> None:
+    """Poll by running crumb script at intervals and analyzing with AI."""
+    console.print(
+        f"\nStarting interval polling for '{crumb.name}' (interval: {interval}s)...\n"
+        f"Poll prompt: {poll_prompt}\n"
+        f"Press Ctrl+C to stop polling.\n",
+        style="bold cyan",
+    )
+
+    shutdown_event = asyncio.Event()
+
+    def signal_handler():
+        console.print("\nStopping polling...", style="yellow")
+        shutdown_event.set()
+
+    loop = asyncio.get_running_loop()
+    loop.add_signal_handler(signal.SIGINT, signal_handler)
+
+    try:
+        while not shutdown_event.is_set():
+            timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+            console.print(f"\n[{timestamp}] Polling {crumb.name}...", style="bold blue")
+
+            # Run crumb script
+            result = await rubber_ducky.run_shell_command(str(crumb.path))
+
+            script_output = result.stdout if result.stdout.strip() else "(no output)"
+            if result.stderr.strip():
+                script_output += f"\n[stderr]\n{result.stderr}"
+
+            console.print(f"Script output: {len(result.stdout)} bytes\n", style="dim")
+
+            # Send to AI with prompt
+            full_prompt = f"{poll_prompt}\n\nScript output:\n{script_output}"
+            ai_result = await rubber_ducky.send_prompt(prompt=full_prompt, command_mode=False)
+
+            console.print(f"AI: {ai_result.content}", style="green", highlight=False)
+
+            # Wait for next interval
+            await asyncio.sleep(interval)
+    except asyncio.CancelledError:
+        console.print("\nPolling stopped.", style="yellow")
+    finally:
+        loop.remove_signal_handler(signal.SIGINT)
+
+
+async def _continuous_polling(
+    rubber_ducky: RubberDuck,
+    crumb: Crumb,
+    interval: int,
+    poll_prompt: str,
+) -> None:
+    """Poll by running crumb continuously and analyzing output periodically."""
+    console.print(
+        f"\nStarting continuous polling for '{crumb.name}' (analysis interval: {interval}s)...\n"
+        f"Poll prompt: {poll_prompt}\n"
+        f"Press Ctrl+C to stop polling.\n",
+        style="bold cyan",
+    )
+
+    shutdown_event = asyncio.Event()
+    accumulated_output: list[str] = []
+
+    def signal_handler():
+        console.print("\nStopping polling...", style="yellow")
+        shutdown_event.set()
+
+    loop = asyncio.get_running_loop()
+    loop.add_signal_handler(signal.SIGINT, signal_handler)
+
+    # Start crumb process
+    process = None
+    try:
+        process = await asyncio.create_subprocess_shell(
+            str(crumb.path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        async def read_stream(stream, name: str):
+            """Read output from stream non-blocking."""
+            while not shutdown_event.is_set():
+                try:
+                    line = await asyncio.wait_for(stream.readline(), timeout=0.1)
+                    if not line:
+                        break
+                    line_text = line.decode(errors="replace")
+                    accumulated_output.append(line_text)
+                except asyncio.TimeoutError:
+                    continue
+                except Exception:
+                    break
+
+        # Read both stdout and stderr
+        asyncio.create_task(read_stream(process.stdout, "stdout"))
+        asyncio.create_task(read_stream(process.stderr, "stderr"))
+
+        # Main polling loop - analyze accumulated output
+        last_analyzed_length = 0
+
+        while not shutdown_event.is_set():
+            await asyncio.sleep(interval)
+
+            # Only analyze if there's new output
+            current_length = len(accumulated_output)
+            if current_length > last_analyzed_length:
+                timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+                console.print(f"\n[{timestamp}] Polling {crumb.name}...", style="bold blue")
+
+                # Get new output since last analysis
+                new_output = "".join(accumulated_output[last_analyzed_length:])
+
+                console.print(f"New script output: {len(new_output)} bytes\n", style="dim")
+
+                # Send to AI with prompt
+                full_prompt = f"{poll_prompt}\n\nScript output:\n{new_output}"
+                ai_result = await rubber_ducky.send_prompt(prompt=full_prompt, command_mode=False)
+
+                console.print(f"AI: {ai_result.content}", style="green", highlight=False)
+
+                last_analyzed_length = current_length
+
+    except asyncio.CancelledError:
+        console.print("\nPolling stopped.", style="yellow")
+    finally:
+        if process:
+            process.kill()
+            await process.wait()
+        loop.remove_signal_handler(signal.SIGINT)
+
+
 async def ducky() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -900,6 +1256,24 @@ async def ducky() -> None:
         "-l",
         action="store_true",
         help="Run DuckY offline using a local Ollama instance on localhost:11434",
+    )
+    parser.add_argument(
+        "--poll",
+        help="Start polling mode for the specified crumb",
+        default=None,
+    )
+    parser.add_argument(
+        "--interval",
+        "-i",
+        type=int,
+        help="Override crumb's polling interval in seconds",
+        default=None,
+    )
+    parser.add_argument(
+        "--prompt",
+        "-p",
+        help="Override crumb's polling prompt",
+        default=None,
     )
     args, _ = parser.parse_known_args()
 
@@ -952,6 +1326,33 @@ async def ducky() -> None:
                 )
         else:
             console.print("No input received from stdin.", style="yellow")
+        return
+
+    # Handle polling mode
+    if args.poll:
+        crumb_name = args.poll
+        if crumb_name not in rubber_ducky.crumbs:
+            console.print(f"Crumb '{crumb_name}' not found.", style="red")
+            console.print(
+                f"Available crumbs: {', '.join(rubber_ducky.crumbs.keys())}",
+                style="yellow",
+            )
+            return
+
+        crumb = rubber_ducky.crumbs[crumb_name]
+        if not crumb.poll:
+            console.print(
+                f"Warning: Crumb '{crumb_name}' doesn't have polling enabled.",
+                style="yellow",
+            )
+            console.print("Proceeding anyway with default polling mode.", style="dim")
+
+        await polling_session(
+            rubber_ducky,
+            crumb,
+            interval=args.interval,
+            prompt_override=args.prompt,
+        )
         return
 
     await interactive_session(rubber_ducky, logger=logger, code=code)
