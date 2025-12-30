@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shlex
+import subprocess
 import sys
 import signal
 from dataclasses import dataclass
@@ -1056,6 +1057,16 @@ async def run_single_prompt(
     return result
 
 
+def copy_to_clipboard(text: str) -> bool:
+    """Copy text to system clipboard using pbcopy on macOS."""
+    try:
+        process = subprocess.Popen(['pbcopy'], stdin=subprocess.PIPE)
+        process.communicate(text.encode('utf-8'))
+        return process.returncode == 0
+    except Exception:
+        return False
+
+
 def confirm(prompt: str, default: bool = False) -> bool:
     suffix = " [Y/n]: " if default else " [y/N]: "
     try:
@@ -1275,7 +1286,13 @@ async def ducky() -> None:
         help="Override crumb's polling prompt",
         default=None,
     )
-    args, _ = parser.parse_known_args()
+    parser.add_argument(
+        "single_prompt",
+        nargs="?",
+        help="Run a single prompt and copy the suggested command to clipboard",
+        default=None,
+    )
+    args = parser.parse_args()
 
     ensure_history_dir()
     logger = ConversationLogger(CONVERSATION_LOG_FILE)
@@ -1326,6 +1343,16 @@ async def ducky() -> None:
                 )
         else:
             console.print("No input received from stdin.", style="yellow")
+        return
+
+    # Handle single prompt mode
+    if args.single_prompt:
+        result = await run_single_prompt(
+            rubber_ducky, args.single_prompt, code=code, logger=logger
+        )
+        if result.command:
+            if copy_to_clipboard(result.command):
+                console.print("\n[green]✓[/green] Command copied to clipboard")
         return
 
     # Handle polling mode
