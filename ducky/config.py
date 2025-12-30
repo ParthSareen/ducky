@@ -17,7 +17,7 @@ class ConfigManager:
     def load_config(self) -> Dict[str, Any]:
         """Load configuration from file, returning defaults if not found."""
         default_config = {
-            "last_model": "qwen3-coder:480b-cloud",
+            "last_model": "glm-4.7:cloud",
             "last_host": "https://ollama.com"
         }
         
@@ -45,12 +45,12 @@ class ConfigManager:
     
     def get_last_model(self) -> tuple[str, str]:
         """Get the last used model and host.
-        
+
         Returns:
             Tuple of (model_name, host)
         """
         config = self.load_config()
-        return config.get("last_model", "qwen3-coder:480b-cloud"), config.get("last_host", "https://ollama.com")
+        return config.get("last_model", "glm-4.7:cloud"), config.get("last_host", "https://ollama.com")
     
     def save_last_model(self, model_name: str, host: str) -> None:
         """Save the last used model and host."""

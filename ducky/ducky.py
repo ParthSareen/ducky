@@ -364,7 +364,7 @@ class RubberDuck:
             model=self.model,
             messages=self.messages,
             stream=False,
-            think=True,
+            think=False,
         )
 
         assistant_message: Any | None = response.message
@@ -704,8 +704,6 @@ class InlineInterface:
             self._code_sent = True
         self.last_command = result.command
         self.pending_command = result.command
-        # Set last_shell_output to True so empty Enter will explain the result
-        self.last_shell_output = True
 
     async def _explain_last_command(self) -> None:
         if not self.assistant.messages or len(self.assistant.messages) < 2:
