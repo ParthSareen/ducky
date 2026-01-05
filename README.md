@@ -11,8 +11,8 @@ Rubber Ducky is an inline terminal companion that turns natural language prompts
 | Local install | `uv pip install rubber-ducky` |
 
 Requirements:
-- [Ollama](https://ollama.com) running locally
-- Model available via Ollama (default: `qwen3-coder:480b-cloud`, install with `ollama pull qwen3-coder:480b-cloud`)
+- [Ollama](https://ollama.com) running locally or use cloud models
+- Model available via Ollama (default: `glm-4.7:cloud`)
 
 ## Usage
 
@@ -20,8 +20,7 @@ Requirements:
 ducky                      # interactive inline session
 ducky --directory src      # preload code from a directory
 ducky --model qwen3        # use a different Ollama model
-ducky --local              # use local models with gemma2:9b default
-ducky --poll log-crumb     # start polling mode for a crumb
+ducky --local              # use local models with qwen3 default
 ```
 
 Both `ducky` and `rubber-ducky` executables map to the same CLI, so `uvx rubber-ducky -- <args>` works as well.
@@ -53,127 +52,116 @@ Rubber Ducky now supports easy switching between local and cloud models:
 ### Additional Commands
 
 - **`/help`** - Show all available commands and shortcuts
-- **`/crumbs`** - List all available crumbs (default and user-created)
+- **`/crumbs`** - List all saved crumb shortcuts
+- **`/crumb <name>`** - Save the last AI-suggested command as a named crumb
+- **`/crumb add <name> <command>`** - Manually add a crumb with a specific command
+- **`/crumb del <name>`** - Delete a saved crumb
+- **`<crumb-name>`** - Invoke a saved crumb (displays info and executes the command)
 - **`/clear`** or **`/reset`** - Clear conversation history
-- **`/poll <crumb>`** - Start polling session for a crumb
-- **`/poll <crumb> -i <interval>`** - Start polling with custom interval
-- **`/poll <crumb> -p <prompt>`** - Start polling with custom prompt
-- **`/stop-poll`** - Stop current polling session
 - **`/run`** or **`:run`** - Re-run the last suggested command
 
 ## Crumbs
 
-Crumbs are simple scripts that can be executed within Rubber Ducky. They are stored in `~/.ducky/crumbs/` (for user crumbs) and shipped with the package (default crumbs).
+Crumbs are saved command shortcuts that let you quickly reuse AI-generated bash commands without regenerating them each time. Perfect for frequently-used workflows or complex commands.
 
-Rubber Ducky ships with the following default crumbs:
+### Saving Crumbs
 
-| Crumb | Description |
-|-------|-------------|
-| `git-status` | Show current git status and provide suggestions |
-| `git-log` | Show recent commit history with detailed information |
-| `recent-files` | Show recently modified files in current directory |
-| `disk-usage` | Show disk usage with highlights |
-| `system-health` | Show CPU, memory, and system load metrics |
-| `process-list` | Show running processes with analysis |
+When the AI suggests a command that you want to reuse:
 
-**Tip:** Run `/crumbs` in interactive mode to see all available crumbs with descriptions and polling status.
-
-To use a crumb, simply mention it in your prompt:
-```
-Can you use the git-status crumb to see what needs to be committed?
-```
-
-**Note:** User-defined crumbs (in `~/.ducky/crumbs/`) override default crumbs with the same name.
-
-### Creating Crumbs
-
-To create a new crumb:
-
-1. Create a new directory in `~/.ducky/crumbs/` with your crumb name
-2. Add an `info.txt` file with metadata:
+1. Get a command suggestion from ducky
+2. Save it immediately: `/crumb <name>`
+3. Example:
    ```
-   name: your-crumb-name
-   type: shell
-   description: Brief description of what this crumb does
-   ```
-3. Add your executable script file (e.g., `your-crumb-name.sh`)
-4. Create a symbolic link in `~/.local/bin` to make it available as a command:
-   ```bash
-   ln -s ~/.ducky/crumbs/your-crumb-name/your-crumb-name.sh ~/.local/bin/your-crumb-name
+   >> How do I list all Ollama processes?
+   ...
+   Suggested command: ps aux | grep -i ollama | grep -v grep
+   >> /crumb ols
+   Saved crumb 'ols'!
+   Generating explanation...
+   Explanation added: Finds and lists all running Ollama processes.
    ```
 
-### Polling Mode
+The crumb is saved with:
+- The original command
+- An AI-generated one-line explanation
+- A timestamp
 
-Crumbs can be configured for background polling, where the crumb script runs at intervals and the AI analyzes the output.
+### Invoking Crumbs
 
-**Enabling Polling in a Crumb:**
+Simply type the crumb name in the REPL or use it as a CLI argument:
 
-Add polling configuration to your crumb's `info.txt`:
+**In REPL:**
 ```
-name: log-crumb
-type: shell
-description: Fetch and analyze server logs
-poll: true
-poll_type: interval          # "interval" (run repeatedly) or "continuous" (run once, tail output)
-poll_interval: 5             # seconds between polls
-poll_prompt: Analyze these logs for errors, warnings, or anomalies. Be concise.
+>> ols
+
+Crumb: ols
+Explanation: Finds and lists all running Ollama processes.
+Command: ps aux | grep -i ollama | grep -v grep
+
+$ ps aux | grep -i ollama | grep -v grep
+user123  12345  0.3  1.2  456789  98765 ?  Sl  10:00   0:05 ollama serve
 ```
 
-**Polling via CLI:**
-
+**From CLI:**
 ```bash
-# Start polling with crumb's default configuration
-ducky --poll log-crumb
-
-# Override interval
-ducky --poll log-crumb --interval 10
-
-# Override prompt
-ducky --poll log-crumb --prompt "Extract only error messages"
+ducky ols              # Runs the saved crumb and displays output
 ```
 
-**Polling via Interactive Mode:**
+When you invoke a crumb:
+1. It displays the crumb name, explanation, and command
+2. Automatically executes the command
+3. Shows the output
 
+### Managing Crumbs
+
+**List all crumbs:**
 ```bash
-ducky
->> /poll log-crumb                    # Use crumb defaults
->> /poll log-crumb -i 10              # Override interval
->> /poll log-crumb -p "Summarize"     # Override prompt
->> /stop-poll                         # Stop polling
+>> /crumbs
 ```
 
-**Example Crumb with Polling:**
-
-Directory: `~/.ducky/crumbs/server-logs/`
-
+Output:
 ```
-info.txt:
-  name: server-logs
-  type: shell
-  description: Fetch and analyze server logs
-  poll: true
-  poll_type: interval
-  poll_interval: 5
-  poll_prompt: Analyze these logs for errors, warnings, or anomalies. Be concise.
-
-server-logs.sh:
-  #!/bin/bash
-  curl -s http://localhost:8080/logs | tail -50
+Saved Crumbs
+=============
+ols      | Finds and lists all running Ollama processes. | ps aux | grep -i ollama | grep -v grep
+test     | Run tests and build project                  | pytest && python build.py
+deploy   | Deploy to production                         | docker push app:latest
 ```
 
-**Polling Types:**
+**Manually add a crumb:**
+```bash
+>> /crumb add deploy-prod docker build -t app:latest && docker push app:latest
+```
 
-- **interval**: Run the crumb script at regular intervals (default)
-- **continuous**: Run the crumb once in the background and stream its output, analyzing periodically
+**Delete a crumb:**
+```bash
+>> /crumb ols
+Deleted crumb 'ols'.
+```
 
-**Stopping Polling:**
+### Storage
 
-Press `Ctrl+C` at any time to stop polling. In interactive mode, you can also use `/stop-poll`.
+Crumbs are stored in `~/.ducky/crumbs.json` as JSON. Each crumb includes:
+- `prompt`: Original user prompt
+- `response`: AI's full response
+- `command`: The suggested bash command
+- `explanation`: AI-generated one-line summary
+- `created_at`: ISO timestamp
 
-## Documentation
+**Example:**
+```json
+{
+  "ols": {
+    "prompt": "How do I list all Ollama processes?",
+    "response": "To list all running Ollama processes...",
+    "command": "ps aux | grep -i ollama | grep -v grep",
+    "explanation": "Finds and lists all running Ollama processes.",
+    "created_at": "2024-01-05T10:30:00.000000+00:00"
+  }
+}
+```
 
-- **Polling Feature Guide**: See [examples/POLLING_USER_GUIDE.md](examples/POLLING_USER_GUIDE.md) for detailed instructions on creating and using polling crumbs
-- **Mock Log Crumb**: See [examples/mock-logs/](examples/mock-logs/) for an example polling crumb
+Delete `~/.ducky/crumbs.json` to clear all saved crumbs.
 
 ## Development (uv)
 
