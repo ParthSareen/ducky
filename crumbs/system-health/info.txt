@@ -1,3 +1,0 @@
-name: system-health
-type: shell
-description: Show system health metrics including CPU, memory, and load

@@ -1,3 +1,0 @@
-name: git-status
-type: shell
-description: Show current git branch, uncommitted changes, and provide suggestions for next steps

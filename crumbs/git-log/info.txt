@@ -1,3 +1,0 @@
-name: git-log
-type: shell
-description: Show recent commit history with detailed information

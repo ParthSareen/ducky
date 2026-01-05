@@ -1,3 +1,0 @@
-name: disk-usage
-type: shell
-description: Show disk usage with highlights on full drives

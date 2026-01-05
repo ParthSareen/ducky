@@ -1,3 +1,0 @@
-name: recent-files
-type: shell
-description: Show recently modified files in the current directory
