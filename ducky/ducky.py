@@ -103,18 +103,43 @@ class ConversationLogger:
             handle.write("\n")
 
 
-def print_shell_result(result: ShellResult) -> None:
-    printed = False
+def print_shell_result(result: ShellResult, truncate: bool = True) -> None:
+    """Print shell command output with optional truncation.
+
+    Args:
+        result: The ShellResult containing command output
+        truncate: If True and output is long (>10 lines), show truncated version
+    """
+    # Determine if we should truncate
+    stdout_lines = result.stdout.rstrip().split('\n') if result.stdout else []
+    stderr_lines = result.stderr.rstrip().split('\n') if result.stderr else []
+    total_lines = len(stdout_lines) + len(stderr_lines)
+
+    should_truncate = truncate and total_lines > 10
+
     if result.stdout.strip():
-        console.print(result.stdout.rstrip(), highlight=False)
-        printed = True
+        if should_truncate:
+            # Show first 8 lines of stdout
+            show_lines = stdout_lines[:8]
+            console.print('\n'.join(show_lines), highlight=False)
+            console.print(f"... ({len(stdout_lines) - 8} more lines, use /expand to see full output)", style="dim cyan")
+        else:
+            console.print(result.stdout.rstrip(), highlight=False)
+
     if result.stderr.strip():
-        if printed:
+        if result.stdout.strip():
             console.print()
         console.print("[stderr]", style="bold red")
-        console.print(result.stderr.rstrip(), style="red", highlight=False)
-        printed = True
-    if result.returncode != 0 or not printed:
+        if should_truncate:
+            # Show first 5 lines of stderr
+            show_lines = stderr_lines[:5]
+            console.print('\n'.join(show_lines), style="red", highlight=False)
+            if len(stderr_lines) > 5:
+                console.print(f"... ({len(stderr_lines) - 5} more lines)", style="dim red")
+        else:
+            console.print(result.stderr.rstrip(), style="red", highlight=False)
+
+    if result.returncode != 0 or (not result.stdout.strip() and not result.stderr.strip()):
         suffix = (
             f"(exit status {result.returncode})"
             if result.returncode != 0
@@ -128,10 +153,11 @@ async def run_shell_and_print(
     command: str,
     logger: ConversationLogger | None = None,
     history: list[dict[str, str]] | None = None,
-) -> None:
+) -> ShellResult:
+    """Run a shell command and print output. Returns the ShellResult."""
     if not command:
         console.print("No command provided.", style="yellow")
-        return
+        return ShellResult(command="", stdout="", stderr="", returncode=-1)
     console.print(f"$ {command}", style="bold magenta")
     result = await assistant.run_shell_command(command)
     print_shell_result(result)
@@ -149,6 +175,7 @@ async def run_shell_and_print(
         if not combined_output:
             combined_output.append("(command produced no output)")
         history.append({"role": "assistant", "content": "\n\n".join(combined_output)})
+    return result
 
 
 class RubberDuck:
@@ -351,6 +378,7 @@ class InlineInterface:
         self.code = code
         self._code_sent = False
         self.last_shell_output: str | None = None
+        self.last_shell_result: ShellResult | None = None
         self.pending_command: str | None = None
         self.session: PromptSession | None = None
         self.selected_model: str | None = None
@@ -475,18 +503,36 @@ class InlineInterface:
         if not self.last_command:
             console.print("No suggested command available yet.", style="yellow")
             return
-        await run_shell_and_print(
-            self.assistant,
-            self.last_command,
-            logger=self.logger,
-            history=self.assistant.messages,
-        )
+        await self._run_shell_command(self.last_command)
         # Add the command to prompt history so user can recall it with up arrow
         if self.session and self.session.history and self.last_command:
             self.session.history.append_string(self.last_command)
         self.last_shell_output = True
         self.pending_command = None
         self.last_command = None
+
+    async def _run_shell_command(self, command: str) -> None:
+        """Run a shell command, print output (with truncation), and store result."""
+        result = await run_shell_and_print(
+            self.assistant,
+            command,
+            logger=self.logger,
+            history=self.assistant.messages,
+        )
+        # Store the result for expansion later
+        self.last_shell_result = result
+
+    async def _expand_last_output(self) -> None:
+        """Expand and show the full output of the last shell command."""
+        if not self.last_shell_result:
+            console.print("No previous shell output to expand.", style="yellow")
+            return
+
+        console.print()
+        console.print(f"[Full output for: {self.last_shell_result.command}]", style="bold cyan")
+        console.print()
+        print_shell_result(self.last_shell_result, truncate=False)
+        console.print()
 
     async def _process_text(self, text: str) -> None:
         stripped = text.strip()
@@ -538,14 +584,13 @@ class InlineInterface:
             await self._handle_crumb_command(stripped)
             return
 
+        if stripped.lower() == "/expand":
+            await self._expand_last_output()
+            return
+
         if stripped.startswith("!"):
             command = stripped[1:].strip()
-            await run_shell_and_print(
-                self.assistant,
-                command,
-                logger=self.logger,
-                history=self.assistant.messages,
-            )
+            await self._run_shell_command(command)
             # Add the command to prompt history so user can recall it with up arrow
             if self.session and self.session.history and command:
                 self.session.history.append_string(command)
@@ -595,6 +640,7 @@ class InlineInterface:
             ("[bold]/crumb add <name> <cmd>[/bold]", "Manually add a crumb"),
             ("[bold]/crumb del <name>[/bold]", "Delete a crumb"),
             ("[bold]<name>[/bold]", "Invoke a saved crumb"),
+            ("[bold]/expand[/bold]", "Show full output of last shell command"),
             ("[bold]/model[/bold]", "Select a model interactively (local or cloud)"),
             (
                 "[bold]/local[/bold]",
@@ -740,9 +786,13 @@ class InlineInterface:
             if explanation:
                 self.crumb_manager.update_explanation(name, explanation)
                 from rich.text import Text
+
+                # Strip ANSI codes from explanation
+                clean_explanation = re.sub(r'\x1b\[([0-9;]*[mGK])', '', explanation)
+
                 text = Text()
                 text.append("Explanation added: ", style="cyan")
-                text.append(explanation)
+                text.append(clean_explanation)
                 console.print(text)
         except Exception as e:
             console.print(f"Could not generate explanation: {e}", style="yellow")
@@ -786,12 +836,7 @@ class InlineInterface:
 
         if command and command != "No command":
             # Execute the command
-            await run_shell_and_print(
-                self.assistant,
-                command,
-                logger=self.logger,
-                history=self.assistant.messages,
-            )
+            await self._run_shell_command(command)
 
     async def _select_model(self, host: str = "") -> None:
         """Show available models and allow user to select one with arrow keys."""
