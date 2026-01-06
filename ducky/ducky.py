@@ -1030,6 +1030,12 @@ async def ducky() -> None:
         help="Run DuckY offline using a local Ollama instance on localhost:11434",
     )
     parser.add_argument(
+        "--yolo",
+        "-y",
+        action="store_true",
+        help=" Automatically run the suggested command without confirmation",
+    )
+    parser.add_argument(
         "single_prompt",
         nargs="?",
         help="Run a single prompt and copy the suggested command to clipboard",
@@ -1117,7 +1123,14 @@ async def ducky() -> None:
             rubber_ducky, args.single_prompt, code=code, logger=logger
         )
         if result.command:
-            if copy_to_clipboard(result.command):
+            if args.yolo:
+                await run_shell_and_print(
+                    rubber_ducky,
+                    result.command,
+                    logger=logger,
+                    history=rubber_ducky.messages,
+                )
+            elif copy_to_clipboard(result.command):
                 console.print("\n[green]✓[/green] Command copied to clipboard")
         return
 
