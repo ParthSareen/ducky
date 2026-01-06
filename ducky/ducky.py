@@ -634,13 +634,16 @@ class InlineInterface:
         console.print()
 
         commands = [
-            ("[bold]/help[/bold]", "Show this help message"),
+            ("[bold]Crumbs:[/bold]", ""),
+            ("[bold]/crumb help[/bold]", "Show detailed crumb commands help"),
             ("[bold]/crumbs[/bold]", "List all saved crumb shortcuts"),
             ("[bold]/crumb <name>[/bold]", "Save last result as a crumb"),
             ("[bold]/crumb add <name> <cmd>[/bold]", "Manually add a crumb"),
             ("[bold]/crumb del <name>[/bold]", "Delete a crumb"),
             ("[bold]<name>[/bold]", "Invoke a saved crumb"),
-            ("[bold]/expand[/bold]", "Show full output of last shell command"),
+            ("", ""),
+            ("[bold]General:[/bold]", ""),
+            ("[bold]/help[/bold]", "Show this help message"),
             ("[bold]/model[/bold]", "Select a model interactively (local or cloud)"),
             (
                 "[bold]/local[/bold]",
@@ -651,10 +654,8 @@ class InlineInterface:
                 "[bold]/clear[/bold] or [bold]/reset[/bold]",
                 "Clear conversation history",
             ),
-            (
-                "[bold]/run[/bold]",
-                "Re-run the last suggested command",
-            ),
+            ("[bold]/expand[/bold]", "Show full output of last shell command"),
+            ("[bold]/run[/bold]", "Re-run the last suggested command"),
             (
                 "[bold]Empty Enter[/bold]",
                 "Re-run suggested command or explain last output",
@@ -666,7 +667,13 @@ class InlineInterface:
         ]
 
         for command, description in commands:
-            console.print(f"{command:<45} {description}")
+            if command:
+                console.print(f"{command:<45} {description}")
+            else:
+                console.print()
+
+        console.print()
+        console.print("[dim]Use /crumb help for detailed crumb command documentation[/dim]")
 
         console.print()
 
@@ -706,9 +713,15 @@ class InlineInterface:
     async def _handle_crumb_command(self, command: str) -> None:
         """Handle /crumb commands."""
         parts = command.split()
+
         if len(parts) == 1:
-            # Just "/crumbs" - show list
-            await self._show_crumbs()
+            # Just "/crumb" - show help
+            await self._show_crumb_help()
+            return
+
+        # Check for help flag or argument
+        if parts[1] in {"help", "--help", "-h"}:
+            await self._show_crumb_help()
             return
 
         if len(parts) == 2:
@@ -721,6 +734,7 @@ class InlineInterface:
             # "/crumb add <name> <...command>"
             if len(parts) < 4:
                 console.print("Usage: /crumb add <name> <command>", style="yellow")
+                console.print("Example: /crumb add deploy docker build -t app:latest", style="dim")
                 return
             name = parts[2]
             cmd = " ".join(parts[3:])
@@ -734,9 +748,49 @@ class InlineInterface:
             return
 
         console.print(
-            "Usage: /crumb <name> | /crumb add <name> <cmd> | /crumb del <name>",
+            "Unknown crumb command. Use /crumb help for usage information.",
             style="yellow",
         )
+
+    async def _show_crumb_help(self) -> None:
+        """Display detailed help for crumb commands."""
+        console.print("\n[bold blue]Crumbs Help[/bold blue]")
+        console.print("=" * 40)
+        console.print()
+
+        console.print("[bold cyan]Commands:[/bold cyan]")
+        console.print()
+
+        commands = [
+            ("[bold]/crumbs[/bold]", "List all saved crumb shortcuts"),
+            ("[bold]/crumb help[/bold]", "Show this help message"),
+            ("[bold]/crumb <name>[/bold]", "Save the last AI-suggested command as a crumb"),
+            ("[bold]/crumb add <name> <cmd>[/bold]", "Manually add a crumb with a specific command"),
+            ("[bold]/crumb del <name>[/bold]", "Delete a saved crumb"),
+            ("[bold]<name>[/bold]", "Invoke a saved crumb by name"),
+        ]
+
+        for command, description in commands:
+            console.print(f"{command:<45} {description}")
+
+        console.print()
+        console.print("[bold cyan]Examples:[/bold cyan]")
+        console.print()
+        console.print("  [dim]# List all crumbs[/dim]")
+        console.print("  >> /crumbs")
+        console.print()
+        console.print("  [dim]# Save last command as 'deploy'[/dim]")
+        console.print("  >> /crumb deploy")
+        console.print()
+        console.print("  [dim]# Manually add a crumb[/dim]")
+        console.print("  >> /crumb add test-run pytest tests/ -v")
+        console.print()
+        console.print("  [dim]# Delete a crumb[/dim]")
+        console.print("  >> /crumb del deploy")
+        console.print()
+        console.print("  [dim]# Run a saved crumb[/dim]")
+        console.print("  >> test-run")
+        console.print()
 
     async def _save_crumb(self, name: str) -> None:
         """Save the last result as a crumb."""
