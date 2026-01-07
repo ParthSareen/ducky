@@ -1037,13 +1037,23 @@ async def run_single_prompt(
     except Exception as e:
         error_msg = str(e)
         if "unauthorized" in error_msg.lower() or "401" in error_msg:
-            console.print("\n[red]Authentication Error[/red]")
+            console.print("\n[red]Authentication Error (401)[/red]")
             console.print("You're trying to use a cloud model but don't have valid credentials.", style="yellow")
+
+            # Check if API key is set
+            api_key = os.environ.get("OLLAMA_API_KEY")
+            if api_key:
+                console.print("\nAn OLLAMA_API_KEY is set, but it appears invalid.", style="yellow")
+            else:
+                console.print("\n[bold]OLLAMA_API_KEY environment variable is not set.[/bold]", style="yellow")
+
             console.print("\nOptions:", style="bold")
             console.print("  1. Use --local flag to access local models:", style="dim")
             console.print("     ducky --local", style="cyan")
             console.print("  2. Select a local model with /local command", style="dim")
-            console.print("  3. Set up Ollama cloud API credentials", style="dim")
+            console.print("  3. Set up Ollama cloud API credentials:", style="dim")
+            console.print("     export OLLAMA_API_KEY='your-api-key-here'", style="cyan")
+            console.print("\nGet your API key from: https://ollama.com/account/api-keys", style="dim")
             console.print()
             raise
         else:
