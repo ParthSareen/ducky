@@ -348,9 +348,12 @@ class RubberDuck:
         if host:
             os.environ["OLLAMA_HOST"] = host
             self.client = AsyncClient(host)
+            if "ollama.com" in host:
+                console.print("[dim]Note: Cloud models require authentication[/dim]", style="yellow")
         elif "-cloud" in model_name:
             os.environ["OLLAMA_HOST"] = "https://ollama.com"
             self.client = AsyncClient("https://ollama.com")
+            console.print("[dim]Note: Cloud models require authentication[/dim]", style="yellow")
         else:
             os.environ["OLLAMA_HOST"] = "http://localhost:11434"
             self.client = AsyncClient()
@@ -1029,7 +1032,23 @@ async def run_single_prompt(
 ) -> AssistantResult:
     if logger:
         logger.log_user(prompt)
-    result = await rubber_ducky.send_prompt(prompt=prompt, code=code)
+    try:
+        result = await rubber_ducky.send_prompt(prompt=prompt, code=code)
+    except Exception as e:
+        error_msg = str(e)
+        if "unauthorized" in error_msg.lower() or "401" in error_msg:
+            console.print("\n[red]Authentication Error[/red]")
+            console.print("You're trying to use a cloud model but don't have valid credentials.", style="yellow")
+            console.print("\nOptions:", style="bold")
+            console.print("  1. Use --local flag to access local models:", style="dim")
+            console.print("     ducky --local", style="cyan")
+            console.print("  2. Select a local model with /local command", style="dim")
+            console.print("  3. Set up Ollama cloud API credentials", style="dim")
+            console.print()
+            raise
+        else:
+            raise
+
     content = result.content or "(No content returned.)"
     console.print(content, style="green", highlight=False)
     if logger:
