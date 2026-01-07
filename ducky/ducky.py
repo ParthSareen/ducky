@@ -552,7 +552,10 @@ class InlineInterface:
         # Check if first word is a crumb name
         first_word = stripped.split()[0].lower()
         if self.crumb_manager.has_crumb(first_word):
-            await self._use_crumb(first_word)
+            # Extract additional arguments after the crumb name
+            parts = stripped.split()
+            args = parts[1:] if len(parts) > 1 else None
+            await self._use_crumb(first_word, args)
             return
 
         if stripped.lower() in {":run", "/run"}:
@@ -876,8 +879,13 @@ class InlineInterface:
         else:
             console.print(f"Crumb '{name}' not found.", style="yellow")
 
-    async def _use_crumb(self, name: str) -> None:
-        """Recall and execute a saved crumb."""
+    async def _use_crumb(self, name: str, args: list[str] | None = None) -> None:
+        """Recall and execute a saved crumb.
+
+        Args:
+            name: Name of the crumb to execute
+            args: Optional list of arguments to replace ${VAR} placeholders in the command
+        """
         crumb = self.crumb_manager.get_crumb(name)
         if not crumb:
             console.print(f"Crumb '{name}' not found.", style="yellow")
@@ -886,9 +894,13 @@ class InlineInterface:
         explanation = crumb.get("explanation", "") or "No explanation"
         command = crumb.get("command", "") or "No command"
 
+        # Substitute placeholders with provided arguments
+        if args and command != "No command":
+            command = substitute_placeholders(command, args)
+
         console.print(f"\n[bold cyan]Crumb: {name}[/bold cyan]")
         console.print(f"Explanation: {explanation}", style="green")
-        console.print(f"Command: ", style="cyan", end="")
+        console.print("Command: ", style="cyan", end="")
         console.print(command, highlight=False)
 
         if command and command != "No command":
@@ -1120,7 +1132,7 @@ async def ducky() -> None:
     )
     parser.add_argument(
         "single_prompt",
-        nargs="?",
+        nargs="*",
         help="Run a single prompt and copy the suggested command to clipboard",
         default=None,
     )
@@ -1179,31 +1191,41 @@ async def ducky() -> None:
 
     # Handle crumb invocation mode
     crumb_manager = CrumbManager()
-    if args.single_prompt and crumb_manager.has_crumb(args.single_prompt):
-        crumb = crumb_manager.get_crumb(args.single_prompt)
-        if crumb:
-            explanation = crumb.get("explanation", "") or "No explanation"
-            command = crumb.get("command", "") or "No command"
+    if args.single_prompt:
+        first_arg = args.single_prompt[0]
+        if crumb_manager.has_crumb(first_arg):
+            # Extract crumb arguments (everything after the crumb name)
+            crumb_args = args.single_prompt[1:] if len(args.single_prompt) > 1 else None
 
-            console.print(f"\n[bold cyan]Crumb: {args.single_prompt}[/bold cyan]")
-            console.print(f"Explanation: {explanation}", style="green")
-            console.print(f"Command: ", style="cyan", end="")
-            console.print(command, highlight=False)
+            crumb = crumb_manager.get_crumb(first_arg)
+            if crumb:
+                explanation = crumb.get("explanation", "") or "No explanation"
+                command = crumb.get("command", "") or "No command"
 
-            if command and command != "No command":
-                # Execute the command
-                await run_shell_and_print(
-                    rubber_ducky,
-                    command,
-                    logger=logger,
-                    history=rubber_ducky.messages,
-                )
-        return
+                # Substitute placeholders with provided arguments
+                if crumb_args and command != "No command":
+                    command = substitute_placeholders(command, crumb_args)
+
+                console.print(f"\n[bold cyan]Crumb: {first_arg}[/bold cyan]")
+                console.print(f"Explanation: {explanation}", style="green")
+                console.print("Command: ", style="cyan", end="")
+                console.print(command, highlight=False)
+
+                if command and command != "No command":
+                    # Execute the command
+                    await run_shell_and_print(
+                        rubber_ducky,
+                        command,
+                        logger=logger,
+                        history=rubber_ducky.messages,
+                    )
+            return
 
     # Handle single prompt mode
     if args.single_prompt:
+        prompt = " ".join(args.single_prompt)
         result = await run_single_prompt(
-            rubber_ducky, args.single_prompt, code=code, logger=logger
+            rubber_ducky, prompt, code=code, logger=logger
         )
         if result.command:
             if args.yolo:
@@ -1218,6 +1240,34 @@ async def ducky() -> None:
         return
 
     await interactive_session(rubber_ducky, logger=logger, code=code)
+
+
+def substitute_placeholders(command: str, args: list[str]) -> str:
+    """Replace ${VAR} placeholders in command with provided arguments.
+
+    Args:
+        command: The command string with placeholders
+        args: List of arguments to substitute (first arg replaces first placeholder, etc.)
+
+    Returns:
+        Command with placeholders replaced, falling back to env vars for unreplaced placeholders
+    """
+    result = command
+    arg_index = 0
+    placeholder_pattern = re.compile(r'\$\{([^}]+)\}')
+
+    def replace_placeholder(match: re.Match) -> str:
+        nonlocal arg_index
+        if arg_index < len(args):
+            value = args[arg_index]
+            arg_index += 1
+            return value
+        # Fallback to environment variable
+        var_name = match.group(1)
+        return os.environ.get(var_name, match.group(0))
+
+    result = placeholder_pattern.sub(replace_placeholder, result)
+    return result
 
 
 def main() -> None:
