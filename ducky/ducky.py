@@ -15,6 +15,7 @@ from pathlib import Path
 from textwrap import dedent
 from typing import Any, Dict, List
 
+__version__ = "1.6.1"
 
 from .config import ConfigManager
 from .crumb import CrumbManager
@@ -1114,6 +1115,9 @@ async def interactive_session(
 
 async def ducky() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--version", "-v", action="version", version=f"%(prog)s {__version__}"
+    )
     parser.add_argument(
         "--directory", "-d", help="The directory to be processed", default=None
     )
