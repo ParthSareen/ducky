@@ -1247,23 +1247,36 @@ def substitute_placeholders(command: str, args: list[str]) -> str:
 
     Args:
         command: The command string with placeholders
-        args: List of arguments to substitute (first arg replaces first placeholder, etc.)
+        args: List of arguments to substitute. The first unique variable name
+              maps to args[0], the second unique name maps to args[1], etc.
 
     Returns:
-        Command with placeholders replaced, falling back to env vars for unreplaced placeholders
+        Command with placeholders replaced. Reused variable names get the
+        same argument value. Falls back to env vars for unreplaced placeholders.
     """
     result = command
-    arg_index = 0
     placeholder_pattern = re.compile(r'\$\{([^}]+)\}|\$(\w+)')
 
-    def replace_placeholder(match: re.Match) -> str:
-        nonlocal arg_index
-        # Get the variable name from either ${VAR} or $var format
+    # First pass: collect unique variable names in order of appearance
+    unique_vars = []
+    seen_vars = set()
+    for match in placeholder_pattern.finditer(command):
         var_name = match.group(1) or match.group(2)
-        if arg_index < len(args):
-            value = args[arg_index]
-            arg_index += 1
-            return value
+        if var_name not in seen_vars:
+            seen_vars.add(var_name)
+            unique_vars.append(var_name)
+
+    # Map unique variable names to arguments
+    var_map = {}
+    for i, var_name in enumerate(unique_vars):
+        if i < len(args):
+            var_map[var_name] = args[i]
+
+    # Second pass: replace all placeholders using the map
+    def replace_placeholder(match: re.Match) -> str:
+        var_name = match.group(1) or match.group(2)
+        if var_name in var_map:
+            return var_map[var_name]
         # Fallback to environment variable
         return os.environ.get(var_name, match.group(0))
 
