@@ -15,7 +15,7 @@ from pathlib import Path
 from textwrap import dedent
 from typing import Any, Dict, List
 
-__version__ = "1.6.1"
+__version__ = "1.6.2"
 
 from .config import ConfigManager
 from .crumb import CrumbManager
