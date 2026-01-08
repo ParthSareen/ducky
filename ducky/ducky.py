@@ -554,7 +554,7 @@ class InlineInterface:
         if self.crumb_manager.has_crumb(first_word):
             # Extract additional arguments after the crumb name
             parts = stripped.split()
-            args = parts[1:] if len(parts) > 1 else None
+            args = parts[1:]
             await self._use_crumb(first_word, args)
             return
 
@@ -1195,7 +1195,7 @@ async def ducky() -> None:
         first_arg = args.single_prompt[0]
         if crumb_manager.has_crumb(first_arg):
             # Extract crumb arguments (everything after the crumb name)
-            crumb_args = args.single_prompt[1:] if len(args.single_prompt) > 1 else None
+            crumb_args = args.single_prompt[1:]
 
             crumb = crumb_manager.get_crumb(first_arg)
             if crumb:
@@ -1243,7 +1243,7 @@ async def ducky() -> None:
 
 
 def substitute_placeholders(command: str, args: list[str]) -> str:
-    """Replace ${VAR} placeholders in command with provided arguments.
+    """Replace ${VAR} and $var placeholders in command with provided arguments.
 
     Args:
         command: The command string with placeholders
@@ -1254,16 +1254,17 @@ def substitute_placeholders(command: str, args: list[str]) -> str:
     """
     result = command
     arg_index = 0
-    placeholder_pattern = re.compile(r'\$\{([^}]+)\}')
+    placeholder_pattern = re.compile(r'\$\{([^}]+)\}|\$(\w+)')
 
     def replace_placeholder(match: re.Match) -> str:
         nonlocal arg_index
+        # Get the variable name from either ${VAR} or $var format
+        var_name = match.group(1) or match.group(2)
         if arg_index < len(args):
             value = args[arg_index]
             arg_index += 1
             return value
         # Fallback to environment variable
-        var_name = match.group(1)
         return os.environ.get(var_name, match.group(0))
 
     result = placeholder_pattern.sub(replace_placeholder, result)
