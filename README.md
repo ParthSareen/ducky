@@ -1,182 +1,301 @@
 # Rubber Ducky
 
-Rubber Ducky is an inline terminal companion that turns natural language prompts into runnable shell commands. Paste multi-line context, get a suggested command, and run it without leaving your terminal.
+Turn natural language into bash commands without leaving your terminal.
+
+Rubber Ducky is an inline terminal companion that transforms your prompts into runnable shell commands. Paste multi-line context, get smart suggestions, and execute commands instantly.
+
+---
 
 ## Quick Start
 
-| Action | Command |
-| --- | --- |
-| Install globally | `uv tool install rubber-ducky` |
-| Run once | `uvx rubber-ducky -- --help` |
-| Local install | `uv pip install rubber-ducky` |
-
-Requirements:
-- [Ollama](https://ollama.com) running locally or use cloud models
-- Model available via Ollama (default: `glm-4.7:cloud`)
-
-## Usage
-
-```
-ducky                      # interactive inline session
-ducky --directory src      # preload code from a directory
-ducky --model qwen3        # use a different Ollama model
-ducky --local              # use local models with qwen3 default
-```
-
-Both `ducky` and `rubber-ducky` executables map to the same CLI, so `uvx rubber-ducky -- <args>` works as well.
-
-### Inline Session (default)
-
-Launching `ducky` with no arguments opens the inline interface:
-- **Enter** submits; **Ctrl+J** inserts a newline (helpful when crafting multi-line prompts). Hitting **Enter on an empty prompt** reruns the latest suggested command; if none exists yet, it explains the most recent shell output.
-- **Ctrl+R** re-runs the last suggested command.
-- **Ctrl+S** copies the last suggested command to clipboard.
-- Prefix any line with **`!`** (e.g., `!ls -la`) to run a shell command immediately.
-- Arrow keys browse prompt history, backed by `~/.ducky/prompt_history`.
-- Every prompt, assistant response, and executed command is logged to `~/.ducky/conversation.log`.
-- Press **Ctrl+D** on an empty line to exit.
-- Non-interactive runs such as `cat prompt.txt | ducky` print one response (and suggested command) before exiting; if a TTY is available you'll be asked whether to run the suggested command immediately.
-- If `prompt_toolkit` is unavailable in your environment, Rubber Ducky falls back to a basic input loop (no history or shortcuts); install `prompt-toolkit>=3.0.48` to unlock the richer UI.
-
-`ducky --directory <path>` streams the contents of the provided directory to the assistant the next time you submit a prompt (the directory is read once at startup).
-
-### Model Management
-
-Rubber Ducky now supports easy switching between local and cloud models:
-- **`/model`** - Interactive model selection between local and cloud models
-- **`/local`** - List and select from local models (localhost:11434)
-- **`/cloud`** - List and select from cloud models (ollama.com)
-- Last used model is automatically saved and loaded on startup
-- Type **`esc`** during model selection to cancel
-
-### Additional Commands
-
-- **`/help`** - Show all available commands and shortcuts
-- **`/crumbs`** - List all saved crumb shortcuts
-- **`/crumb <name>`** - Save the last AI-suggested command as a named crumb
-- **`/crumb add <name> <command>`** - Manually add a crumb with a specific command
-- **`/crumb del <name>`** - Delete a saved crumb
-- **`<crumb-name>`** - Invoke a saved crumb (displays info and executes the command)
-- **`/clear`** or **`/reset`** - Clear conversation history
-- **`/run`** or **`:run`** - Re-run the last suggested command
-
-## Crumbs
-
-Crumbs are saved command shortcuts that let you quickly reuse AI-generated bash commands without regenerating them each time. Perfect for frequently-used workflows or complex commands.
-
-### Saving Crumbs
-
-When the AI suggests a command that you want to reuse:
-
-1. Get a command suggestion from ducky
-2. Save it immediately: `/crumb <name>`
-3. Example:
-   ```
-   >> How do I list all Ollama processes?
-   ...
-   Suggested command: ps aux | grep -i ollama | grep -v grep
-   >> /crumb ols
-   Saved crumb 'ols'!
-   Generating explanation...
-   Explanation added: Finds and lists all running Ollama processes.
-   ```
-
-The crumb is saved with:
-- The original command
-- An AI-generated one-line explanation
-- A timestamp
-
-### Invoking Crumbs
-
-Simply type the crumb name in the REPL or use it as a CLI argument:
-
-**In REPL:**
-```
->> ols
-
-Crumb: ols
-Explanation: Finds and lists all running Ollama processes.
-Command: ps aux | grep -i ollama | grep -v grep
-
-$ ps aux | grep -i ollama | grep -v grep
-user123  12345  0.3  1.2  456789  98765 ?  Sl  10:00   0:05 ollama serve
-```
-
-**From CLI:**
 ```bash
-ducky ols              # Runs the saved crumb and displays output
+# Install globally (recommended)
+uv tool install rubber-ducky
+
+# Run interactively
+ducky
+
+# Quick one-shot
+ducky "list all files larger than 10MB in current directory"
+
+# From CLI with options
+ducky --model qwen3
+ducky --directory src
+ducky --local
+
+# Or use uvx (requires -- separator)
+uvx rubber-ducky -- --model qwen3
 ```
 
-When you invoke a crumb:
-1. It displays the crumb name, explanation, and command
-2. Automatically executes the command
-3. Shows the output
+Both `ducky` and `rubber-ducky` executables work identically.
 
-### Managing Crumbs
+### Requirements
 
-**List all crumbs:**
+- [Ollama](https://ollama.com) (running locally or using cloud models)
+- Python 3.10+
+
+---
+
+## Features
+
+- **Natural to Shell** - Describe what you want, get the bash command
+- **Model Flexibility** - Switch between local Ollama models and cloud models
+- **Crumbs** - Save and reuse commands with argument substitution
+- **Piped Input** - Pipe output from other commands directly to ducky
+- **Interactive REPL** - Rich terminal experience with history and shortcuts
+- **Code Context** - Preload project code for AI awareness
+- **Clipboard Support** - Copy commands across macOS, Windows, and Linux
+
+---
+
+## Key Concepts
+
+### REPL (Interactive Mode)
+
+Launch `ducky` to start an inline session:
+
+```
+ducky
+```
+
+**Key controls:**
+- `Enter` - Submit prompt
+- `Ctrl+J` - Insert newline (for multi-line prompts)
+- `Empty Enter` - Rerun last command or explain shell output
+- `Ctrl+R` - Re-run last suggested command
+- `Ctrl+S` - Copy last command to clipboard
+- `!<cmd>` - Run shell command immediately
+- `Arrow keys` - Browse history
+- `Ctrl+D` - Exit
+
+### Models
+
+Rubber Ducky supports both local and cloud models:
+
+- `/model` - Interactive model selection
+- `/local` - List local models (localhost:11434)
+- `/cloud` - List cloud models (ollama.com)
+- Last used model is saved automatically
+
+**Startup flags:**
+- `--local` / `-l` - Use local Ollama with qwen3 default
+- `--model <name>` / `-m` - Specify model directly
+
+### Crumbs
+
+Crumbs are saved command shortcuts. Store frequently-used commands or complex workflows:
+
+```
+>> How do I list all running Python processes?
+...
+Suggested: ps aux | grep python | grep -v grep
+>> /crumb pyprocs
+Saved crumb 'pyprocs'!
+```
+
+**Invoke crumb:**
+```
+>> pyprocs
+Crumb: pyprocs
+Command: ps aux | grep python | grep -v grep
+...
+```
+
+**With argument substitution:**
 ```bash
->> /crumbs
+# Crumb command: git worktree add "../$var-$other" -b $var3
+ducky at feature backend develop
+# Executes: git worktree add "../feature-backend" -b develop
 ```
 
-Output:
-```
-Saved Crumbs
-=============
-ols      | Finds and lists all running Ollama processes. | ps aux | grep -i ollama | grep -v grep
-test     | Run tests and build project                  | pytest && python build.py
-deploy   | Deploy to production                         | docker push app:latest
-```
+---
 
-**Manually add a crumb:**
+## Usage Guide
+
+### Interactive Mode
+
+Default mode. Perfect for development sessions.
+
 ```bash
+ducky
+```
+
+Load code context for better suggestions:
+
+```bash
+ducky --directory src
+```
+
+### Single-Shot Mode
+
+Get one command suggestion and exit.
+
+```bash
+ducky "find all TODO comments in src/"
+```
+
+Copy to clipboard automatically:
+
+```bash
+ducky "build and run tests"
+```
+
+### Piped Input
+
+Process text from other commands:
+
+```bash
+cat error.log | ducky "what's wrong here?"
+git diff | ducky "summarize these changes"
+```
+
+### Run Without Confirmation
+
+Auto-execute suggested commands:
+
+```bash
+ducky --yolo "restart the nginx service"
+```
+
+---
+
+## Crumbs Quick Reference
+
+| Command | Description |
+|---------|-------------|
+| `/crumbs` | List all saved crumbs |
+| `/crumb <name>` | Save last command as crumb |
+| `/crumb add <name> <cmd>` | Manually add crumb |
+| `/crumb del <name>` | Delete crumb |
+| `<name>` | Execute crumb |
+| `/crumb help` | Detailed crumb help |
+
+**Argument Substitution:**
+
+Crumbs support `${VAR}` and `$var` placeholder styles:
+
+```bash
+# Create crumb with placeholders
+git worktree add "../$var-$other" -b $var3
+
+# Invoke with arguments
+ducky at feature backend develop
+```
+
+Both styles are interchangeable.
+
+---
+
+## Command Reference
+
+### Inline Commands
+
+| Command | Action |
+|---------|--------|
+| `/help` | Show all commands |
+| `/clear` / `/reset` | Clear conversation history |
+| `/model` | Select model (interactive) |
+| `/local` | List local models |
+| `/cloud` | List cloud models |
+| `/run` / `:run` | Re-run last command |
+| `/expand` | Show full output of last shell command |
+
+### CLI Flags
+
+| Flag | Description |
+|------|-------------|
+| `--directory <path>` / `-d` | Preload code from directory |
+| `--model <name>` / `-m` | Specify Ollama model |
+| `--local` / `-l` | Use local Ollama (qwen3 default) |
+| `--yolo` / `-y` | Auto-run without confirmation |
+| `<prompt>` | Single prompt mode (copied to clipboard) |
+
+---
+
+## Tips & Tricks
+
+### Efficient Workflows
+
+```bash
+# Preload project context
+ducky --directory src
+
+# Reuse complex commands with crumbs
+docker ps | ducky "kill all containers"
+>> /crumb killall
+
+# Chain commands
+!ls -la
+ducksy "find large files"
+
+# Use history
+[↑] Recall previous prompts
+[↓] Navigate command history
+```
+
+### Keyboard Shortcuts Reference
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Submit prompt |
+| `Ctrl+J` | Insert newline |
+| `Empty Enter` | Rerun last command or explain |
+| `Ctrl+R` | Re-run last suggested command |
+| `Ctrl+S` | Copy to clipboard |
+| `Ctrl+D` | Exit |
+| `!cmd` | Run shell command directly |
+
+### Crumb Patterns
+
+```bash
+# Save after complex command
+>> docker-compose up -d && wait && docker-compose logs
+>> /crumb start-logs
+
+# Manually add with arguments
 >> /crumb add deploy-prod docker build -t app:latest && docker push app:latest
+
+# Use for common workflows
+>> ls -la
+find . -type f -name "*.py" | xargs wc -l
+>> /crumb count-py
 ```
 
-**Delete a crumb:**
+---
+
+## Storage
+
+Rubber Ducky stores data in `~/.ducky/`:
+
+| File | Purpose |
+|------|---------|
+| `prompt_history` | readline-compatible history |
+| `conversation.log` | JSON log of all interactions |
+| `config` | User preferences (last model) |
+| `crumbs.json` | Saved crumb shortcuts |
+
+Delete the entire directory for a fresh start.
+
+---
+
+## Development
+
 ```bash
->> /crumb ols
-Deleted crumb 'ols'.
-```
-
-### Storage
-
-Crumbs are stored in `~/.ducky/crumbs.json` as JSON. Each crumb includes:
-- `prompt`: Original user prompt
-- `response`: AI's full response
-- `command`: The suggested bash command
-- `explanation`: AI-generated one-line summary
-- `created_at`: ISO timestamp
-
-**Example:**
-```json
-{
-  "ols": {
-    "prompt": "How do I list all Ollama processes?",
-    "response": "To list all running Ollama processes...",
-    "command": "ps aux | grep -i ollama | grep -v grep",
-    "explanation": "Finds and lists all running Ollama processes.",
-    "created_at": "2024-01-05T10:30:00.000000+00:00"
-  }
-}
-```
-
-Delete `~/.ducky/crumbs.json` to clear all saved crumbs.
-
-## Development (uv)
-
-```
+# Clone and setup
+git clone <repo>
+cd ducky
 uv sync
+
+# Run
 uv run ducky --help
+uv run ducky
+
+# Lint
+uv run ruff check .
 ```
 
-`uv sync` creates a virtual environment and installs dependencies defined in `pyproject.toml` / `uv.lock`.
+---
 
-## Telemetry & Storage
+## License
 
-Rubber Ducky stores:
-- `~/.ducky/prompt_history`: readline-compatible history file.
-- `~/.ducky/conversation.log`: JSON lines with timestamps for prompts, assistant messages, and shell executions.
-- `~/.ducky/config`: User preferences including last selected model.
-
-No other telemetry is collected; delete the directory if you want a fresh slate.
+MIT © 2023 Parth Sareen
