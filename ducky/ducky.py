@@ -5,7 +5,6 @@ import asyncio
 import json
 import os
 import re
-import shlex
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -15,7 +14,7 @@ from pathlib import Path
 from textwrap import dedent
 from typing import Any, Dict, List
 
-__version__ = "1.6.2"
+__version__ = "1.6.3"
 
 from .config import ConfigManager
 from .crumb import CrumbManager
@@ -36,11 +35,15 @@ try:  # prompt_toolkit is optional at runtime
     from prompt_toolkit.patch_stdout import patch_stdout
     from prompt_toolkit.styles import Style
     from prompt_toolkit.widgets import Box, Button, Dialog, Label, TextArea
+    from prompt_toolkit.formatted_text import PygmentsTokens
 except ImportError:  # pragma: no cover - fallback mode
     PromptSession = None  # type: ignore[assignment]
     FileHistory = None  # type: ignore[assignment]
     KeyBindings = None  # type: ignore[assignment]
 
+    def patch_stdout() -> nullcontext:
+        return nullcontext()
+else:
     def patch_stdout() -> nullcontext:
         return nullcontext()
 
@@ -123,22 +126,22 @@ def print_shell_result(result: ShellResult, truncate: bool = True) -> None:
             # Show first 8 lines of stdout
             show_lines = stdout_lines[:8]
             console.print('\n'.join(show_lines), highlight=False)
-            console.print(f"... ({len(stdout_lines) - 8} more lines, use /expand to see full output)", style="dim cyan")
+            console.print(f"... ({len(stdout_lines) - 8} more lines, use /expand to see full output)", style="dim")
         else:
             console.print(result.stdout.rstrip(), highlight=False)
 
     if result.stderr.strip():
         if result.stdout.strip():
             console.print()
-        console.print("[stderr]", style="bold red")
+        console.print("[stderr]", style="bold yellow")
         if should_truncate:
             # Show first 5 lines of stderr
             show_lines = stderr_lines[:5]
-            console.print('\n'.join(show_lines), style="red", highlight=False)
+            console.print('\n'.join(show_lines), style="yellow", highlight=False)
             if len(stderr_lines) > 5:
-                console.print(f"... ({len(stderr_lines) - 5} more lines)", style="dim red")
+                console.print(f"... ({len(stderr_lines) - 5} more lines)", style="dim")
         else:
-            console.print(result.stderr.rstrip(), style="red", highlight=False)
+            console.print(result.stderr.rstrip(), style="yellow", highlight=False)
 
     if result.returncode != 0 or (not result.stdout.strip() and not result.stderr.strip()):
         suffix = (
@@ -159,7 +162,7 @@ async def run_shell_and_print(
     if not command:
         console.print("No command provided.", style="yellow")
         return ShellResult(command="", stdout="", stderr="", returncode=-1)
-    console.print(f"$ {command}", style="bold magenta")
+    console.print(f"$ {command}", style="bold white")
     result = await assistant.run_shell_command(command)
     print_shell_result(result)
     if logger:
@@ -330,7 +333,7 @@ class RubberDuck:
                 models.append(m.model)
             return models
         except Exception as e:
-            console.print(f"Error listing models: {e}", style="red")
+            console.print(f"Error listing models: {e}", style="yellow")
             return []
         finally:
             # Restore original host
@@ -359,13 +362,27 @@ class RubberDuck:
             os.environ["OLLAMA_HOST"] = "http://localhost:11434"
             self.client = AsyncClient()
 
-        console.print(f"Switched to model: {model_name}", style="green")
+        console.print(f"Switched to model: {model_name}", style="yellow")
 
     def clear_history(self) -> None:
         """Reset conversation history to the initial system prompt."""
         if self.messages:
             self.messages = [self.messages[0]]
-        console.print("Conversation history cleared.", style="green")
+        console.print("Conversation history cleared.", style="yellow")
+
+    async def check_connection(self) -> tuple[bool, str]:
+        """Check if Ollama host is reachable. Returns (is_connected, message)."""
+        try:
+            models = await self.list_models()
+            return True, f"Connected ({len(models)} models available)"
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "refused" in error_msg:
+                return False, "Connection refused - is Ollama running?"
+            elif "timeout" in error_msg:
+                return False, "Connection timeout - check network/host"
+            else:
+                return False, f"Error: {e}"
 
 
 class InlineInterface:
@@ -374,6 +391,7 @@ class InlineInterface:
         assistant: RubberDuck,
         logger: ConversationLogger | None = None,
         code: str | None = None,
+        quiet_mode: bool = False,
     ) -> None:
         ensure_history_dir()
         self.assistant = assistant
@@ -387,6 +405,7 @@ class InlineInterface:
         self.session: PromptSession | None = None
         self.selected_model: str | None = None
         self.crumb_manager = CrumbManager()
+        self.quiet_mode = quiet_mode
 
         if (
             PromptSession is not None
@@ -426,6 +445,36 @@ class InlineInterface:
 
         return kb
 
+    def _print_banner(self) -> None:
+        """Print the startup banner with version, model info, and crumb count."""
+        from .ducky import __version__
+
+        # Determine model display with host indicator
+        model = self.assistant.model
+        host = os.environ.get("OLLAMA_HOST", "")
+        if host == "https://ollama.com":
+            model_display = f"{model}:cloud"
+        elif "localhost" in host:
+            model_display = f"{model}:local"
+        else:
+            model_display = model
+
+        # Get crumb count
+        crumbs = self.crumb_manager.list_crumbs()
+        crumb_count = len(crumbs)
+
+        # Print banner with yellow/white color scheme
+        console.print(f"Ducky v{__version__}", style="yellow")
+        console.print(
+            f"Model: [bold white]{model_display}[/bold white] | Crumbs: {crumb_count}"
+        )
+        console.print()
+        console.print(
+            "Enter submits • !cmd=shell • Ctrl+D=exit • /help=commands",
+            style="dim",
+        )
+        console.print()
+
     async def run(self) -> None:
         if self.session is None:
             console.print(
@@ -435,10 +484,10 @@ class InlineInterface:
             await self._run_basic_loop()
             return
 
-        console.print(
-            "Enter submits • empty Enter reruns the last suggested command (or explains the last shell output) • '!<cmd>' runs shell • Ctrl+D exits • Ctrl+S copies last command",
-            style="dim",
-        )
+        # Print banner if not in quiet mode
+        if not self.quiet_mode:
+            self._print_banner()
+
         while True:
             try:
                 with patch_stdout():
@@ -497,9 +546,9 @@ class InlineInterface:
                     )
                     process.communicate(input=command_to_copy)
 
-            console.print(f"Copied to clipboard: {command_to_copy}", style="green")
+            console.print(f"Copied to clipboard: {command_to_copy}", style="yellow")
         except Exception as e:
-            console.print(f"Failed to copy to clipboard: {e}", style="red")
+            console.print(f"Failed to copy to clipboard: {e}", style="yellow")
             console.print("You can manually copy the last command:", style="dim")
             console.print(f"  {self.last_command}", style="bold")
 
@@ -533,7 +582,7 @@ class InlineInterface:
             return
 
         console.print()
-        console.print(f"[Full output for: {self.last_shell_result.command}]", style="bold cyan")
+        console.print(f"[Full output for: {self.last_shell_result.command}]", style="bold white")
         console.print()
         print_shell_result(self.last_shell_result, truncate=False)
         console.print()
@@ -554,8 +603,8 @@ class InlineInterface:
         first_word = stripped.split()[0].lower()
         if self.crumb_manager.has_crumb(first_word):
             # Extract additional arguments after the crumb name
-            parts = stripped.split()
-            args = parts[1:]
+            parts = stripped.split(maxsplit=1)
+            args = parts[1:] if len(parts) > 1 else []
             await self._use_crumb(first_word, args)
             return
 
@@ -636,8 +685,8 @@ class InlineInterface:
 
     async def _show_help(self) -> None:
         """Display help information for all available commands."""
-        console.print("\nDucky CLI Help", style="bold blue")
-        console.print("===============", style="bold blue")
+        console.print("\nDucky CLI Help", style="bold white")
+        console.print("===============", style="bold white")
         console.print()
 
         commands = [
@@ -692,8 +741,8 @@ class InlineInterface:
             console.print("No crumbs saved yet. Use '/crumb <name>' to save a command.", style="yellow")
             return
 
-        console.print("\nSaved Crumbs", style="bold blue")
-        console.print("=============", style="bold blue")
+        console.print("\nSaved Crumbs", style="bold white")
+        console.print("=============", style="bold white")
         console.print()
 
         # Calculate max name length for alignment
@@ -706,7 +755,7 @@ class InlineInterface:
 
             # Format: name | explanation | command
             console.print(
-                f"[bold]{name:<{max_name_len}}[/bold] | [cyan]{explanation}[/cyan] | [dim]{command}[/dim]"
+                f"[bold yellow]{name:<{max_name_len}}[/bold yellow] | [white]{explanation}[/white] | [dim]{command}[/dim]"
             )
 
         console.print(f"\n[dim]Total: {len(crumbs)} crumbs[/dim]")
@@ -823,7 +872,7 @@ class InlineInterface:
             command=self.assistant.last_result.command,
         )
 
-        console.print(f"Saved crumb '{name}'!", style="green")
+        console.print(f"Saved crumb '{name}'!", style="yellow")
         console.print("Generating explanation...", style="dim")
 
         # Spawn subprocess to generate explanation asynchronously
@@ -852,7 +901,7 @@ class InlineInterface:
                 clean_explanation = re.sub(r'\x1b\[([0-9;]*[mGK])', '', explanation)
 
                 text = Text()
-                text.append("Explanation added: ", style="cyan")
+                text.append("Explanation added: ", style="white")
                 text.append(clean_explanation)
                 console.print(text)
         except Exception as e:
@@ -867,7 +916,7 @@ class InlineInterface:
             command=command,
         )
 
-        console.print(f"Added crumb '{name}'!", style="green")
+        console.print(f"Added crumb '{name}'!", style="yellow")
         console.print("Generating explanation...", style="dim")
 
         # Spawn subprocess to generate explanation asynchronously
@@ -876,7 +925,7 @@ class InlineInterface:
     async def _delete_crumb(self, name: str) -> None:
         """Delete a crumb."""
         if self.crumb_manager.delete_crumb(name):
-            console.print(f"Deleted crumb '{name}'.", style="green")
+            console.print(f"Deleted crumb '{name}'.", style="yellow")
         else:
             console.print(f"Crumb '{name}' not found.", style="yellow")
 
@@ -899,9 +948,13 @@ class InlineInterface:
         if args and command != "No command":
             command = substitute_placeholders(command, args)
 
-        console.print(f"\n[bold cyan]Crumb: {name}[/bold cyan]")
-        console.print(f"Explanation: {explanation}", style="green")
-        console.print("Command: ", style="cyan", end="")
+        from rich.text import Text
+        crumb_text = Text()
+        crumb_text.append("Crumb: ", style="bold yellow")
+        crumb_text.append(name, style="bold yellow")
+        console.print(f"\n{crumb_text}")
+        console.print(f"Explanation: {explanation}", style="yellow")
+        console.print("Command: ", style="white", end="")
         console.print(command, highlight=False)
 
         if command and command != "No command":
@@ -918,7 +971,7 @@ class InlineInterface:
             return
 
         # Show current model
-        console.print(f"Current model: {self.assistant.model}", style="bold green")
+        console.print(f"Current model: {self.assistant.model}", style="bold yellow")
 
         # If no host specified, give user a choice between local and cloud
         if not host:
@@ -940,17 +993,17 @@ class InlineInterface:
                 elif choice == "2":
                     host = "https://ollama.com"
                 else:
-                    console.print("Invalid choice. Please select 1 or 2.", style="red")
+                    console.print("Invalid choice. Please select 1 or 2.", style="yellow")
                     return
             except (ValueError, EOFError):
-                console.print("Invalid input.", style="red")
+                console.print("Invalid input.", style="yellow")
                 return
 
         models = await self.assistant.list_models(host)
         if not models:
             if host == "http://localhost:11434":
                 console.print(
-                    "No local models available. Is Ollama running?", style="red"
+                    "No local models available. Is Ollama running?", style="yellow"
                 )
                 console.print("Start Ollama with: ollama serve", style="yellow")
             else:
@@ -966,7 +1019,7 @@ class InlineInterface:
 
         for i, model in enumerate(models, 1):
             if model == self.assistant.model:
-                console.print(f"{i}. {model} (current)", style="green")
+                console.print(f"{i}. [bold yellow]{model}[/bold yellow] (current)", style="yellow")
             else:
                 console.print(f"{i}. {model}")
 
@@ -985,14 +1038,14 @@ class InlineInterface:
                 if 0 <= index < len(models):
                     selected_model = models[index]
                 else:
-                    console.print("Invalid model number.", style="red")
+                    console.print("Invalid model number.", style="yellow")
                     return
             else:
                 # Check if it's a model name
                 if choice in models:
                     selected_model = choice
                 else:
-                    console.print("Invalid model name.", style="red")
+                    console.print("Invalid model name.", style="yellow")
                     return
 
             self.assistant.switch_model(selected_model, host)
@@ -1004,7 +1057,7 @@ class InlineInterface:
                 host or os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
             )
         except (ValueError, EOFError):
-            console.print("Invalid input.", style="red")
+            console.print("Invalid input.", style="yellow")
 
     async def _run_basic_loop(self) -> None:  # pragma: no cover - fallback path
         while True:
@@ -1062,10 +1115,10 @@ async def run_single_prompt(
 
             console.print("\nOptions:", style="bold")
             console.print("  1. Use --local flag to access local models:", style="dim")
-            console.print("     ducky --local", style="cyan")
+            console.print("     ducky --local", style="white")
             console.print("  2. Select a local model with /local command", style="dim")
             console.print("  3. Set up Ollama cloud API credentials:", style="dim")
-            console.print("     export OLLAMA_API_KEY='your-api-key-here'", style="cyan")
+            console.print("     export OLLAMA_API_KEY='your-api-key-here'", style="white")
             console.print("\nGet your API key from: https://ollama.com/account/api-keys", style="dim")
             console.print()
             raise
@@ -1073,12 +1126,12 @@ async def run_single_prompt(
             raise
 
     content = result.content or "(No content returned.)"
-    console.print(content, style="green", highlight=False)
+    console.print(content, style="dim", highlight=False)
     if logger:
         logger.log_assistant(content, result.command)
     if result.command and not suppress_suggestion:
-        console.print("\nSuggested command:", style="cyan", highlight=False)
-        console.print(result.command, style="bold cyan", highlight=False)
+        console.print("\nSuggested command:", style="yellow", highlight=False)
+        console.print(result.command, style="bold yellow", highlight=False)
     return result
 
 
@@ -1108,8 +1161,9 @@ async def interactive_session(
     rubber_ducky: RubberDuck,
     logger: ConversationLogger | None = None,
     code: str | None = None,
+    quiet_mode: bool = False,
 ) -> None:
-    ui = InlineInterface(rubber_ducky, logger=logger, code=code)
+    ui = InlineInterface(rubber_ducky, logger=logger, code=code, quiet_mode=quiet_mode)
     await ui.run()
 
 
@@ -1133,6 +1187,12 @@ async def ducky() -> None:
         "-y",
         action="store_true",
         help=" Automatically run the suggested command without confirmation",
+    )
+    parser.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        help="Suppress startup messages and help text",
     )
     parser.add_argument(
         "single_prompt",
@@ -1210,9 +1270,13 @@ async def ducky() -> None:
                 if crumb_args and command != "No command":
                     command = substitute_placeholders(command, crumb_args)
 
-                console.print(f"\n[bold cyan]Crumb: {first_arg}[/bold cyan]")
-                console.print(f"Explanation: {explanation}", style="green")
-                console.print("Command: ", style="cyan", end="")
+                from rich.text import Text
+                crumb_text = Text()
+                crumb_text.append("Crumb: ", style="bold yellow")
+                crumb_text.append(first_arg, style="bold yellow")
+                console.print(f"\n{crumb_text}")
+                console.print(f"Explanation: {explanation}", style="yellow")
+                console.print("Command: ", style="white", end="")
                 console.print(command, highlight=False)
 
                 if command and command != "No command":
@@ -1243,7 +1307,19 @@ async def ducky() -> None:
                 console.print("\n[green]✓[/green] Command copied to clipboard")
         return
 
-    await interactive_session(rubber_ducky, logger=logger, code=code)
+    # Validate model is available if using local
+    if not args.single_prompt and not piped_prompt and last_host == "http://localhost:11434":
+        connected = True
+        try:
+            models = await rubber_ducky.list_models()
+            if args.model not in models:
+                console.print(f"Model '{args.model}' not found locally.", style="yellow")
+                console.print(f"Available: {', '.join(models[:5])}...", style="dim")
+                console.print("Use /model to select, or run 'ollama pull <model>'", style="yellow")
+        except Exception:
+            pass
+
+    await interactive_session(rubber_ducky, logger=logger, code=code, quiet_mode=args.quiet)
 
 
 def substitute_placeholders(command: str, args: list[str]) -> str:
