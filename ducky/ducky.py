@@ -14,7 +14,7 @@ from pathlib import Path
 from textwrap import dedent
 from typing import Any, Dict, List
 
-__version__ = "1.6.3"
+__version__ = "1.6.4"
 
 from .config import ConfigManager
 from .crumb import CrumbManager
@@ -1253,8 +1253,31 @@ async def ducky() -> None:
             console.print("No input received from stdin.", style="yellow")
         return
 
-    # Handle crumb invocation mode
+    # Handle crumb list command
     crumb_manager = CrumbManager()
+    if args.single_prompt and args.single_prompt[0] == "crumbs":
+        crumbs = crumb_manager.list_crumbs()
+
+        if not crumbs:
+            console.print("No crumbs saved yet.", style="yellow")
+        else:
+            console.print("Saved Crumbs", style="bold white")
+            console.print("=============", style="bold white")
+            console.print()
+
+            max_name_len = max(len(name) for name in crumbs.keys())
+
+            for name, data in sorted(crumbs.items()):
+                explanation = data.get("explanation", "") or "No explanation yet"
+                command = data.get("command", "") or "No command"
+
+                console.print(
+                    f"[bold yellow]{name:<{max_name_len}}[/bold yellow] | [white]{explanation}[/white] | [dim]{command}[/dim]"
+                )
+            console.print(f"\n[dim]Total: {len(crumbs)} crumbs[/dim]")
+        return
+
+    # Handle crumb invocation mode
     if args.single_prompt:
         first_arg = args.single_prompt[0]
         if crumb_manager.has_crumb(first_arg):

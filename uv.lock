@@ -359,7 +359,7 @@ wheels = [
 
 [[package]]
 name = "rubber-ducky"
-version = "1.6.2"
+version = "1.6.4"
 source = { editable = "." }
 dependencies = [
     { name = "colorama" },
