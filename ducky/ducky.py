@@ -14,7 +14,7 @@ from pathlib import Path
 from textwrap import dedent
 from typing import Any, Dict, List
 
-__version__ = "1.6.4"
+__version__ = "1.6.5"
 
 from .config import ConfigManager
 from .crumb import CrumbManager
@@ -1170,6 +1170,51 @@ def copy_to_clipboard(text: str) -> bool:
         return False
 
 
+def check_for_updates() -> None:
+    """Check PyPI for updates and notify user if a new version is available.
+    
+    Checks once per day and caches the result to avoid excessive requests.
+    """
+    from datetime import datetime, timedelta
+    import urllib.request
+    import json
+    
+    cache_file = HISTORY_DIR / "version_check_cache"
+    
+    # Check if we've already checked today
+    if cache_file.exists():
+        try:
+            last_check = datetime.fromtimestamp(cache_file.stat().st_mtime)
+            if datetime.now() - last_check < timedelta(days=1):
+                return  # Already checked today
+        except Exception:
+            pass
+    
+    try:
+        # Query PyPI for latest version
+        req = urllib.request.Request(
+            "https://pypi.org/pypi/rubber-ducky/json",
+            headers={"User-Agent": f"rubber-ducky/{__version__}"}
+        )
+        
+        with urllib.request.urlopen(req, timeout=3) as response:
+            data = json.loads(response.read())
+            latest_version = data["info"]["version"]
+            
+            if latest_version != __version__:
+                console.print(
+                    f"\n[dim]A new version is available: {latest_version} "
+                    f"(you have {__version__}). "
+                    f"Run: uv tool upgrade rubber-ducky[/dim]\n"
+                )
+        
+        # Update cache file timestamp
+        cache_file.touch()
+    except Exception:
+        # Silently fail if no internet or PyPI is down
+        pass
+
+
 def confirm(prompt: str, default: bool = False) -> bool:
     suffix = " [Y/n]: " if default else " [y/N]: "
     try:
@@ -1220,6 +1265,12 @@ async def ducky() -> None:
         help="Suppress startup messages and help text",
     )
     parser.add_argument(
+        "--upgrade",
+        "-u",
+        action="store_true",
+        help="Upgrade rubber-ducky to the latest version using uv",
+    )
+    parser.add_argument(
         "single_prompt",
         nargs="*",
         help="Run a single prompt and copy the suggested command to clipboard",
@@ -1227,8 +1278,34 @@ async def ducky() -> None:
     )
     args = parser.parse_args()
 
+    # Handle upgrade request immediately
+    if args.upgrade:
+        console.print("Upgrading rubber-ducky...", style="yellow")
+        try:
+            result = subprocess.run(
+                ["uv", "tool", "upgrade", "rubber-ducky"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            console.print(result.stdout, style="dim")
+            console.print("Upgrade complete!", style="green")
+        except subprocess.CalledProcessError as e:
+            console.print(f"Upgrade failed: {e.stderr}", style="red")
+        except FileNotFoundError:
+            console.print("uv not found. Please install uv to use --upgrade.", style="red")
+        return
+
     ensure_history_dir()
     logger = ConversationLogger(CONVERSATION_LOG_FILE)
+
+    # Check for updates in background (non-blocking, runs once per day)
+    # Skip if quiet mode, piped input, or single prompt (faster paths)
+    check_piped = not sys.stdin.isatty()
+    if not args.quiet and not args.single_prompt and not check_piped:
+        # Run in a thread to not block startup
+        import threading
+        threading.Thread(target=check_for_updates, daemon=True).start()
 
     # Load the last used model from config if no model is specified
     config_manager = ConfigManager()
