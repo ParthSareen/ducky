@@ -238,8 +238,9 @@ class RubberDuck:
 
         if effective_command_mode:
             instruction = (
-                "Return a single bash command that accomplishes the task. Unless user wants something els"
-                "Do not include explanations or formatting other than the command itself."
+                "Return a single bash command that accomplishes the task wrapped in <command></command> tags. "
+                "You can write explanatory text before or after the command tags for the user, "
+                "but the command itself must be within the <command></command> tags and nothing else."
             )
             user_content = (
                 f"{user_content}\n\n{instruction}" if user_content else instruction
@@ -288,10 +289,20 @@ class RubberDuck:
         )
 
     def _extract_command(self, content: str) -> str | None:
-        lines = content.strip().splitlines()
-        if not lines:
+        content = content.strip()
+        if not content:
             return None
 
+        # First, try to extract command from <command></command> tags
+        command_match = re.search(r"<command>(.*?)</command>", content, re.DOTALL)
+        if command_match:
+            command = command_match.group(1).strip()
+            # Strip backticks if present
+            command = self._strip_backticks(command)
+            return command or None
+
+        # Fallback to code block detection
+        lines = content.splitlines()
         command_lines: List[str] = []
         in_block = False
 
@@ -316,8 +327,19 @@ class RubberDuck:
 
         # Join all command lines with newlines for multi-line commands
         command = "\n".join(command_lines)
+        # Strip backticks if present
+        command = self._strip_backticks(command)
 
         return command or None
+
+    def _strip_backticks(self, command: str) -> str:
+        """Strip surrounding backticks from a command string."""
+        command = command.strip()
+        if command.startswith("`"):
+            command = command[1:]
+        if command.endswith("`"):
+            command = command[:-1]
+        return command.strip()
 
     async def list_models(self, host: str = "") -> list[str]:
         """List available Ollama models."""
@@ -1095,11 +1117,12 @@ async def run_single_prompt(
     code: str | None = None,
     logger: ConversationLogger | None = None,
     suppress_suggestion: bool = False,
+    command_mode: bool | None = None,
 ) -> AssistantResult:
     if logger:
         logger.log_user(prompt)
     try:
-        result = await rubber_ducky.send_prompt(prompt=prompt, code=code)
+        result = await rubber_ducky.send_prompt(prompt=prompt, code=code, command_mode=command_mode)
     except Exception as e:
         error_msg = str(e)
         if "unauthorized" in error_msg.lower() or "401" in error_msg:
@@ -1126,7 +1149,9 @@ async def run_single_prompt(
             raise
 
     content = result.content or "(No content returned.)"
-    console.print(content, style="dim", highlight=False)
+    # Strip <command>...</command> tags from display output
+    display_content = re.sub(r"<command>.*?</command>", "", content, flags=re.DOTALL).strip()
+    console.print(display_content, highlight=False)
     if logger:
         logger.log_assistant(content, result.command)
     if result.command and not suppress_suggestion:
@@ -1235,20 +1260,35 @@ async def ducky() -> None:
 
     if piped_prompt is not None:
         if piped_prompt:
-            result = await run_single_prompt(
-                rubber_ducky, piped_prompt, code=code, logger=logger
-            )
-            if (
-                result.command
-                and sys.stdout.isatty()
-                and confirm("Run suggested command?")
-            ):
-                await run_shell_and_print(
-                    rubber_ducky,
-                    result.command,
-                    logger=logger,
-                    history=rubber_ducky.messages,
+            # Check if user also provided a command-line prompt
+            if args.single_prompt:
+                # Combine piped content with user prompt
+                # User prompt is the instruction, piped content is context
+                user_prompt = " ".join(args.single_prompt)
+                combined_prompt = (
+                    f"Context from stdin:\n```\n{piped_prompt}\n```\n\n"
+                    f"User request: {user_prompt}"
                 )
+                # Disable command_mode for this scenario - user wants an explanation, not a command
+                result = await run_single_prompt(
+                    rubber_ducky, combined_prompt, code=code, logger=logger, command_mode=False
+                )
+            else:
+                # Only piped input - proceed with command mode (default behavior)
+                result = await run_single_prompt(
+                    rubber_ducky, piped_prompt, code=code, logger=logger
+                )
+                if (
+                    result.command
+                    and sys.stdout.isatty()
+                    and confirm("Run suggested command?")
+                ):
+                    await run_shell_and_print(
+                        rubber_ducky,
+                        result.command,
+                        logger=logger,
+                        history=rubber_ducky.messages,
+                    )
         else:
             console.print("No input received from stdin.", style="yellow")
         return
