@@ -14,7 +14,7 @@ from pathlib import Path
 from textwrap import dedent
 from typing import Any, Dict, List
 
-__version__ = "1.6.5"
+__version__ = "1.6.7"
 
 from .config import ConfigManager
 from .crumb import CrumbManager
@@ -44,6 +44,7 @@ except ImportError:  # pragma: no cover - fallback mode
     def patch_stdout() -> nullcontext:
         return nullcontext()
 else:
+
     def patch_stdout() -> nullcontext:
         return nullcontext()
 
@@ -115,8 +116,8 @@ def print_shell_result(result: ShellResult, truncate: bool = True) -> None:
         truncate: If True and output is long (>10 lines), show truncated version
     """
     # Determine if we should truncate
-    stdout_lines = result.stdout.rstrip().split('\n') if result.stdout else []
-    stderr_lines = result.stderr.rstrip().split('\n') if result.stderr else []
+    stdout_lines = result.stdout.rstrip().split("\n") if result.stdout else []
+    stderr_lines = result.stderr.rstrip().split("\n") if result.stderr else []
     total_lines = len(stdout_lines) + len(stderr_lines)
 
     should_truncate = truncate and total_lines > 10
@@ -125,8 +126,11 @@ def print_shell_result(result: ShellResult, truncate: bool = True) -> None:
         if should_truncate:
             # Show first 8 lines of stdout
             show_lines = stdout_lines[:8]
-            console.print('\n'.join(show_lines), highlight=False)
-            console.print(f"... ({len(stdout_lines) - 8} more lines, use /expand to see full output)", style="dim")
+            console.print("\n".join(show_lines), highlight=False)
+            console.print(
+                f"... ({len(stdout_lines) - 8} more lines, use /expand to see full output)",
+                style="dim",
+            )
         else:
             console.print(result.stdout.rstrip(), highlight=False)
 
@@ -137,13 +141,15 @@ def print_shell_result(result: ShellResult, truncate: bool = True) -> None:
         if should_truncate:
             # Show first 5 lines of stderr
             show_lines = stderr_lines[:5]
-            console.print('\n'.join(show_lines), style="yellow", highlight=False)
+            console.print("\n".join(show_lines), style="yellow", highlight=False)
             if len(stderr_lines) > 5:
                 console.print(f"... ({len(stderr_lines) - 5} more lines)", style="dim")
         else:
             console.print(result.stderr.rstrip(), style="yellow", highlight=False)
 
-    if result.returncode != 0 or (not result.stdout.strip() and not result.stderr.strip()):
+    if result.returncode != 0 or (
+        not result.stdout.strip() and not result.stderr.strip()
+    ):
         suffix = (
             f"(exit status {result.returncode})"
             if result.returncode != 0
@@ -223,7 +229,10 @@ class RubberDuck:
         ]
 
     async def send_prompt(
-        self, prompt: str | None = None, code: str | None = None, command_mode: bool | None = None
+        self,
+        prompt: str | None = None,
+        code: str | None = None,
+        command_mode: bool | None = None,
     ) -> AssistantResult:
         user_content = (prompt or "").strip()
 
@@ -234,7 +243,9 @@ class RubberDuck:
             user_content += ". Return a command and be extremely concise"
 
         # Use provided command_mode, or fall back to self.command_mode
-        effective_command_mode = command_mode if command_mode is not None else self.command_mode
+        effective_command_mode = (
+            command_mode if command_mode is not None else self.command_mode
+        )
 
         if effective_command_mode:
             instruction = (
@@ -375,11 +386,16 @@ class RubberDuck:
             os.environ["OLLAMA_HOST"] = host
             self.client = AsyncClient(host)
             if "ollama.com" in host:
-                console.print("[dim]Note: Cloud models require authentication[/dim]", style="yellow")
+                console.print(
+                    "[dim]Note: Cloud models require authentication[/dim]",
+                    style="yellow",
+                )
         elif "-cloud" in model_name:
             os.environ["OLLAMA_HOST"] = "https://ollama.com"
             self.client = AsyncClient("https://ollama.com")
-            console.print("[dim]Note: Cloud models require authentication[/dim]", style="yellow")
+            console.print(
+                "[dim]Note: Cloud models require authentication[/dim]", style="yellow"
+            )
         else:
             os.environ["OLLAMA_HOST"] = "http://localhost:11434"
             self.client = AsyncClient()
@@ -604,7 +620,9 @@ class InlineInterface:
             return
 
         console.print()
-        console.print(f"[Full output for: {self.last_shell_result.command}]", style="bold white")
+        console.print(
+            f"[Full output for: {self.last_shell_result.command}]", style="bold white"
+        )
         console.print()
         print_shell_result(self.last_shell_result, truncate=False)
         console.print()
@@ -751,7 +769,9 @@ class InlineInterface:
                 console.print()
 
         console.print()
-        console.print("[dim]Use /crumb help for detailed crumb command documentation[/dim]")
+        console.print(
+            "[dim]Use /crumb help for detailed crumb command documentation[/dim]"
+        )
 
         console.print()
 
@@ -760,7 +780,10 @@ class InlineInterface:
         crumbs = self.crumb_manager.list_crumbs()
 
         if not crumbs:
-            console.print("No crumbs saved yet. Use '/crumb <name>' to save a command.", style="yellow")
+            console.print(
+                "No crumbs saved yet. Use '/crumb <name>' to save a command.",
+                style="yellow",
+            )
             return
 
         console.print("\nSaved Crumbs", style="bold white")
@@ -812,7 +835,9 @@ class InlineInterface:
             # "/crumb add <name> <...command>"
             if len(parts) < 4:
                 console.print("Usage: /crumb add <name> <command>", style="yellow")
-                console.print("Example: /crumb add deploy docker build -t app:latest", style="dim")
+                console.print(
+                    "Example: /crumb add deploy docker build -t app:latest", style="dim"
+                )
                 return
             name = parts[2]
             cmd = " ".join(parts[3:])
@@ -842,8 +867,14 @@ class InlineInterface:
         commands = [
             ("[bold]/crumbs[/bold]", "List all saved crumb shortcuts"),
             ("[bold]/crumb help[/bold]", "Show this help message"),
-            ("[bold]/crumb <name>[/bold]", "Save the last AI-suggested command as a crumb"),
-            ("[bold]/crumb add <name> <cmd>[/bold]", "Manually add a crumb with a specific command"),
+            (
+                "[bold]/crumb <name>[/bold]",
+                "Save the last AI-suggested command as a crumb",
+            ),
+            (
+                "[bold]/crumb add <name> <cmd>[/bold]",
+                "Manually add a crumb with a specific command",
+            ),
             ("[bold]/crumb del <name>[/bold]", "Delete a saved crumb"),
             ("[bold]<name>[/bold]", "Invoke a saved crumb by name"),
         ]
@@ -873,7 +904,9 @@ class InlineInterface:
     async def _save_crumb(self, name: str) -> None:
         """Save the last result as a crumb."""
         if not self.assistant.last_result:
-            console.print("No previous command to save. Run a command first.", style="yellow")
+            console.print(
+                "No previous command to save. Run a command first.", style="yellow"
+            )
             return
 
         if not self.assistant.last_result.command:
@@ -911,8 +944,12 @@ class InlineInterface:
             return
 
         try:
-            explanation_prompt = f"Summarize this command in one line (10-15 words max): {command}"
-            result = await self.assistant.send_prompt(prompt=explanation_prompt, command_mode=False)
+            explanation_prompt = (
+                f"Summarize this command in one line (10-15 words max): {command}"
+            )
+            result = await self.assistant.send_prompt(
+                prompt=explanation_prompt, command_mode=False
+            )
             explanation = result.content.strip()
 
             if explanation:
@@ -920,7 +957,7 @@ class InlineInterface:
                 from rich.text import Text
 
                 # Strip ANSI codes from explanation
-                clean_explanation = re.sub(r'\x1b\[([0-9;]*[mGK])', '', explanation)
+                clean_explanation = re.sub(r"\x1b\[([0-9;]*[mGK])", "", explanation)
 
                 text = Text()
                 text.append("Explanation added: ", style="white")
@@ -971,6 +1008,7 @@ class InlineInterface:
             command = substitute_placeholders(command, args)
 
         from rich.text import Text
+
         crumb_text = Text()
         crumb_text.append("Crumb: ", style="bold yellow")
         crumb_text.append(name, style="bold yellow")
@@ -1015,7 +1053,9 @@ class InlineInterface:
                 elif choice == "2":
                     host = "https://ollama.com"
                 else:
-                    console.print("Invalid choice. Please select 1 or 2.", style="yellow")
+                    console.print(
+                        "Invalid choice. Please select 1 or 2.", style="yellow"
+                    )
                     return
             except (ValueError, EOFError):
                 console.print("Invalid input.", style="yellow")
@@ -1041,7 +1081,9 @@ class InlineInterface:
 
         for i, model in enumerate(models, 1):
             if model == self.assistant.model:
-                console.print(f"{i}. [bold yellow]{model}[/bold yellow] (current)", style="yellow")
+                console.print(
+                    f"{i}. [bold yellow]{model}[/bold yellow] (current)", style="yellow"
+                )
             else:
                 console.print(f"{i}. {model}")
 
@@ -1122,27 +1164,43 @@ async def run_single_prompt(
     if logger:
         logger.log_user(prompt)
     try:
-        result = await rubber_ducky.send_prompt(prompt=prompt, code=code, command_mode=command_mode)
+        result = await rubber_ducky.send_prompt(
+            prompt=prompt, code=code, command_mode=command_mode
+        )
     except Exception as e:
         error_msg = str(e)
         if "unauthorized" in error_msg.lower() or "401" in error_msg:
             console.print("\n[red]Authentication Error (401)[/red]")
-            console.print("You're trying to use a cloud model but don't have valid credentials.", style="yellow")
+            console.print(
+                "You're trying to use a cloud model but don't have valid credentials.",
+                style="yellow",
+            )
 
             # Check if API key is set
             api_key = os.environ.get("OLLAMA_API_KEY")
             if api_key:
-                console.print("\nAn OLLAMA_API_KEY is set, but it appears invalid.", style="yellow")
+                console.print(
+                    "\nAn OLLAMA_API_KEY is set, but it appears invalid.",
+                    style="yellow",
+                )
             else:
-                console.print("\n[bold]OLLAMA_API_KEY environment variable is not set.[/bold]", style="yellow")
+                console.print(
+                    "\n[bold]OLLAMA_API_KEY environment variable is not set.[/bold]",
+                    style="yellow",
+                )
 
             console.print("\nOptions:", style="bold")
             console.print("  1. Use --local flag to access local models:", style="dim")
             console.print("     ducky --local", style="white")
             console.print("  2. Select a local model with /local command", style="dim")
             console.print("  3. Set up Ollama cloud API credentials:", style="dim")
-            console.print("     export OLLAMA_API_KEY='your-api-key-here'", style="white")
-            console.print("\nGet your API key from: https://ollama.com/account/api-keys", style="dim")
+            console.print(
+                "     export OLLAMA_API_KEY='your-api-key-here'", style="white"
+            )
+            console.print(
+                "\nGet your API key from: https://ollama.com/account/api-keys",
+                style="dim",
+            )
             console.print()
             raise
         else:
@@ -1150,7 +1208,9 @@ async def run_single_prompt(
 
     content = result.content or "(No content returned.)"
     # Strip <command>...</command> tags from display output
-    display_content = re.sub(r"<command>.*?</command>", "", content, flags=re.DOTALL).strip()
+    display_content = re.sub(
+        r"<command>.*?</command>", "", content, flags=re.DOTALL
+    ).strip()
     console.print(display_content, highlight=False)
     if logger:
         logger.log_assistant(content, result.command)
@@ -1163,8 +1223,8 @@ async def run_single_prompt(
 def copy_to_clipboard(text: str) -> bool:
     """Copy text to system clipboard using pbcopy on macOS."""
     try:
-        process = subprocess.Popen(['pbcopy'], stdin=subprocess.PIPE)
-        process.communicate(text.encode('utf-8'))
+        process = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
+        process.communicate(text.encode("utf-8"))
         return process.returncode == 0
     except Exception:
         return False
@@ -1172,15 +1232,15 @@ def copy_to_clipboard(text: str) -> bool:
 
 def check_for_updates() -> None:
     """Check PyPI for updates and notify user if a new version is available.
-    
+
     Checks once per day and caches the result to avoid excessive requests.
     """
     from datetime import datetime, timedelta
     import urllib.request
     import json
-    
+
     cache_file = HISTORY_DIR / "version_check_cache"
-    
+
     # Check if we've already checked today
     if cache_file.exists():
         try:
@@ -1189,25 +1249,25 @@ def check_for_updates() -> None:
                 return  # Already checked today
         except Exception:
             pass
-    
+
     try:
         # Query PyPI for latest version
         req = urllib.request.Request(
             "https://pypi.org/pypi/rubber-ducky/json",
-            headers={"User-Agent": f"rubber-ducky/{__version__}"}
+            headers={"User-Agent": f"rubber-ducky/{__version__}"},
         )
-        
+
         with urllib.request.urlopen(req, timeout=3) as response:
             data = json.loads(response.read())
             latest_version = data["info"]["version"]
-            
+
             if latest_version != __version__:
                 console.print(
                     f"\n[dim]A new version is available: {latest_version} "
                     f"(you have {__version__}). "
                     f"Run: uv tool upgrade rubber-ducky[/dim]\n"
                 )
-        
+
         # Update cache file timestamp
         cache_file.touch()
     except Exception:
@@ -1286,14 +1346,16 @@ async def ducky() -> None:
                 ["uv", "tool", "upgrade", "rubber-ducky"],
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
             )
             console.print(result.stdout, style="dim")
             console.print("Upgrade complete!", style="green")
         except subprocess.CalledProcessError as e:
             console.print(f"Upgrade failed: {e.stderr}", style="red")
         except FileNotFoundError:
-            console.print("uv not found. Please install uv to use --upgrade.", style="red")
+            console.print(
+                "uv not found. Please install uv to use --upgrade.", style="red"
+            )
         return
 
     ensure_history_dir()
@@ -1305,6 +1367,7 @@ async def ducky() -> None:
     if not args.quiet and not args.single_prompt and not check_piped:
         # Run in a thread to not block startup
         import threading
+
         threading.Thread(target=check_for_updates, daemon=True).start()
 
     # Load the last used model from config if no model is specified
@@ -1348,7 +1411,11 @@ async def ducky() -> None:
                 )
                 # Disable command_mode for this scenario - user wants an explanation, not a command
                 result = await run_single_prompt(
-                    rubber_ducky, combined_prompt, code=code, logger=logger, command_mode=False
+                    rubber_ducky,
+                    combined_prompt,
+                    code=code,
+                    logger=logger,
+                    command_mode=False,
                 )
             else:
                 # Only piped input - proceed with command mode (default behavior)
@@ -1411,6 +1478,7 @@ async def ducky() -> None:
                     command = substitute_placeholders(command, crumb_args)
 
                 from rich.text import Text
+
                 crumb_text = Text()
                 crumb_text.append("Crumb: ", style="bold yellow")
                 crumb_text.append(first_arg, style="bold yellow")
@@ -1432,9 +1500,7 @@ async def ducky() -> None:
     # Handle single prompt mode
     if args.single_prompt:
         prompt = " ".join(args.single_prompt)
-        result = await run_single_prompt(
-            rubber_ducky, prompt, code=code, logger=logger
-        )
+        result = await run_single_prompt(rubber_ducky, prompt, code=code, logger=logger)
         if result.command:
             if args.yolo:
                 await run_shell_and_print(
@@ -1448,18 +1514,28 @@ async def ducky() -> None:
         return
 
     # Validate model is available if using local
-    if not args.single_prompt and not piped_prompt and last_host == "http://localhost:11434":
+    if (
+        not args.single_prompt
+        and not piped_prompt
+        and last_host == "http://localhost:11434"
+    ):
         connected = True
         try:
             models = await rubber_ducky.list_models()
             if args.model not in models:
-                console.print(f"Model '{args.model}' not found locally.", style="yellow")
+                console.print(
+                    f"Model '{args.model}' not found locally.", style="yellow"
+                )
                 console.print(f"Available: {', '.join(models[:5])}...", style="dim")
-                console.print("Use /model to select, or run 'ollama pull <model>'", style="yellow")
+                console.print(
+                    "Use /model to select, or run 'ollama pull <model>'", style="yellow"
+                )
         except Exception:
             pass
 
-    await interactive_session(rubber_ducky, logger=logger, code=code, quiet_mode=args.quiet)
+    await interactive_session(
+        rubber_ducky, logger=logger, code=code, quiet_mode=args.quiet
+    )
 
 
 def substitute_placeholders(command: str, args: list[str]) -> str:
@@ -1475,7 +1551,7 @@ def substitute_placeholders(command: str, args: list[str]) -> str:
         same argument value. Falls back to env vars for unreplaced placeholders.
     """
     result = command
-    placeholder_pattern = re.compile(r'\$\{([^}]+)\}|\$(\w+)')
+    placeholder_pattern = re.compile(r"\$\{([^}]+)\}|\$(\w+)")
 
     # First pass: collect unique variable names in order of appearance
     unique_vars = []
